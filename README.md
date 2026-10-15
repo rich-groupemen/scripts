@@ -44,6 +44,10 @@ make install    # mise install + git hooks (pre-commit and pre-push)
 Tool versions are pinned in `.mise.toml` — local and CI use identical
 binaries, so a pass locally means a pass in CI.
 
+Setting this up on another machine, or copying the conventions into a new
+project? See [`docs/BOOTSTRAP.md`](docs/BOOTSTRAP.md) for the full recipe and
+the gotchas that cost real debugging time.
+
 ## Everyday commands
 
 ```bash
