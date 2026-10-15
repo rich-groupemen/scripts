@@ -1,0 +1,51 @@
+# Pre-commit hooks: fast per-file checks on every commit (staged files only),
+# plus a pre-push gate running the full suite so pushes don't fail in CI.
+# Install once per clone:  pre-commit install --hook-type pre-commit --hook-type pre-push
+# Manual full run:         pre-commit run --all-files
+default_language_version:
+  python: python3
+
+repos:
+  # Generic hygiene, rev-pinned
+  - repo: https://github.com/pre-commit/pre-commit-hooks
+    rev: v5.0.0
+    hooks:
+      - id: trailing-whitespace
+      - id: end-of-file-fixer
+      - id: check-yaml
+      - id: check-toml
+      - id: check-merge-conflict
+      - id: check-added-large-files
+        args: ['--maxkb=512']
+      - id: detect-private-key
+
+  # Repo-local hooks: same binaries as CI (mise-pinned shellcheck/shfmt/pwsh),
+  # so "passes locally, fails in CI" can only happen on version drift.
+  - repo: local
+    hooks:
+      - id: shellcheck
+        name: shellcheck
+        entry: mise x -- shellcheck
+        language: system
+        files: \.(sh|bash)$
+        exclude: ^tests/
+
+      - id: shfmt
+        name: shfmt (format check)
+        entry: mise x -- shfmt --diff
+        language: system
+        files: \.(sh|bash)$
+
+      - id: psscriptanalyzer
+        name: PSScriptAnalyzer
+        entry: mise x -- pwsh -NoProfile -File scripts/lint-ps.ps1
+        language: system
+        files: \.(ps1|psm1|psd1)$
+
+      # Pre-push gate: full lint + test suite, mirrors CI exactly.
+      - id: full-gate
+        name: full lint + tests (pre-push gate)
+        entry: mise x -- make prepush
+        language: system
+        stages: [pre-push]
+        pass_filenames: false
