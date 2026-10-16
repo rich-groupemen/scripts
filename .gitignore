@@ -13,6 +13,10 @@ mise.local.toml
 # PowerShell
 *.bak
 
+# AD Tools — temporary cleartext credential record. Written outside the repo by
+# default; this pattern is belt-and-braces so it can never be committed.
+ad-tools-created-users-*.txt
+
 # Python (pre-commit caches live in ~/.cache, this is belt-and-braces)
 __pycache__/
 .venv/
