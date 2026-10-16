@@ -9,7 +9,7 @@ description: Scaffold WPF GUI in PowerShell 5.1 for the AD tools project (hand-r
 Scaffold the WPF UI for `projects/ad-tools/AdManager.ps1` targeting Windows PowerShell 5.1. Must be dependency-free (hand-rolled Fluent XAML). The UI is the "shell"; AD logic lives in `lib/AdTools/`.
 
 ## Guidelines
-- Target: Windows PowerShell 5.1, STA apartment required. Run as `powershell.exe` (not pwsh). 
+- Target: Windows PowerShell 5.1, STA apartment required. Run as `powershell.exe` (not pwsh).
 - Entry point: `projects/ad-tools/AdManager.ps1`. Drop `#Requires -Version 7` (scoped exception for 5.1).
 - No third-party theme libraries (hand-rolled Fluent styles). Use native WPF: XAML loaded via `[System.Windows.Markup.XamlReader]::Load(...)` or inline XAML string.
 - Dependency-free: no DLLs shipped. Works on Windows 11 with .NET Framework 4.8.
@@ -29,7 +29,7 @@ Scaffold the WPF UI for `projects/ad-tools/AdManager.ps1` targeting Windows Powe
 
 ## Temporary credential record (critical)
 - On successful user creation(s), write a temporary text file named `ad-tools-created-users-YYYYMMDD-HHMM.txt` in the working directory (or a path chosen by operator) containing lines: `username name.surname` and `password <cleartext>` for each created user.
-- This is a one-time memory record for transferring credentials to the new user. It must **never** be committed to git. Do not log it. Do not copy to repo. 
+- This is a one-time memory record for transferring credentials to the new user. It must **never** be committed to git. Do not log it. Do not copy to repo.
 - Treat as sensitive; warn the operator. Avoid duplicating passwords in other artifacts.
 
 ## Security
