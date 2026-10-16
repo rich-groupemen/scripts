@@ -6,12 +6,12 @@ description: Scaffold Pester tests for AD tools using mocked ActiveDirectory cmd
 
 # Skill: test-ps-ad-mocks
 
-Write Pester 5 tests for `projects/ad-tools/lib/AdTools` using mocked `*-AD*` cmdlets. Tests must run on Linux (pwsh 7) in CI but validate PowerShell 5.1-compatible logic. No live AD, no credentials.
+Write Pester tests for `projects/ad-tools/lib/AdTools` using mocked `*-AD*` cmdlets. Pester 6.x is installed; the core syntax (`Should -Be`, `-ModuleName`, `-ParameterFilter`, `Should -Invoke`) is unchanged from Pester 5. Tests must run on Linux (pwsh 7) in CI but validate PowerShell 5.1-compatible logic. No live AD, no credentials.
 
 ## Guidelines
 - Test location: `projects/ad-tools/tests/` (Pester `.Tests.ps1` files).
 - Mock all AD cmdlets: `Get-ADOrganizationalUnit`, `Get-ADUser`, `New-ADUser`, `Set-ADUser`, `Add-ADGroupMember`, `Remove-ADGroupMember`, `Get-ADGroup`, `New-ADGroup`, `Disable-ADAccount`.
-- Import module under test: `Import-Module $PSScriptRoot/../lib/AdTools/AdTools.psm1 -Force`
+- Import the module under test with its manifest (`Import-Module $PSScriptRoot/../lib/AdTools/AdTools.psd1 -Force`) so exports match production. Pester's `Mock -ModuleName AdTools` must target the module name, not the file path.
 - Cover: OU create/select, group create/list, user create (name.surname), password generation (length 10, pattern word+digits+special, accents stripped), group membership changes, disable-only archive, `-WhatIf` behavior.
 - Never assert on cleartext password values in logs; only assert password length/format if needed.
 - Deterministic tests. For date-stamped filenames in UI tests, mock `[DateTime]::Now` or test logic separately.
@@ -31,4 +31,4 @@ Write Pester 5 tests for `projects/ad-tools/lib/AdTools` using mocked `*-AD*` cm
 
 ## Notes
 - Keep tests focused and fast. No filesystem side effects except maybe temp paths for the credential file (but that’s UI responsibility; logic tests shouldn’t create the transfer file).
-- CI runs on Linux/pwsh 7; Pester 5 syntax is fine. Avoid PS5.1-only cmdlets in tests.
+- CI runs on Linux/pwsh 7 with Pester 6.x; the core mock/assertion syntax is unchanged from Pester 5. Avoid PS5.1-only cmdlets in tests.
