@@ -11,7 +11,11 @@ if (-not (Get-Module -ListAvailable -Name Pester | Where-Object Version -ge '5.0
     Install-Module -Name Pester -MinimumVersion 5.0.0 -Scope CurrentUser -Force -SkipPublisherCheck
 }
 
-$testFiles = Get-ChildItem -Path (Join-Path -Path $PSScriptRoot -ChildPath '..' -AdditionalChildPath 'tests') -Recurse -Filter *.Tests.ps1 -ErrorAction SilentlyContinue
+# Scan the whole repo (not just the root tests/ folder) so projects such as
+# ad-tools can keep their own Pester suite under projects/<name>/tests/.
+$repoRoot = Resolve-Path (Join-Path -Path $PSScriptRoot -ChildPath '..')
+$testFiles = Get-ChildItem -Path $repoRoot -Recurse -Filter *.Tests.ps1 -ErrorAction SilentlyContinue |
+    Where-Object { $_.FullName -notmatch '[\\/]\.git[\\/]' }
 if (-not $testFiles) {
     Write-Host 'test-ps: no *.Tests.ps1 files, skipping'
     exit 0
