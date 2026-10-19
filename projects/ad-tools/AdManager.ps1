@@ -1,26 +1,30 @@
-#Requires -Version 5.1
+﻿#Requires -Version 5.1
 <#
 .SYNOPSIS
-    Interactive manager for Active Directory OUs and users.
+    Gestionnaire interactif des unités d'organisation (OU) et des utilisateurs AD.
 .DESCRIPTION
-    Windows 11-style, dependency-free WPF front end for the AD Tools project.
-    All AD logic lives in lib/AdTools/AdTools.psm1; this file is only the shell.
+    Interface WPF style Windows 11, sans dépendance externe, pour le projet
+    AD Tools. Toute la logique AD vit dans lib/AdTools/AdTools.psm1 ; ce
+    fichier n'est que la coquille.
 
-    Actions accumulate in a queue. Nothing touches AD until the operator
-    reviews the whole plan and presses Apply All. The queue stores the
-    fully-resolved plan at add time, so what is reviewed is what executes.
+    Les actions s'accumulent dans une file d'attente. Rien n'est écrit dans
+    l'annuaire tant que l'opérateur n'a pas relu le plan complet et cliqué sur
+    Tout appliquer. La file contient le plan entièrement résolu au moment de
+    l'ajout : ce qui est relu est exactement ce qui s'exécute.
 
-    Design rules:
-      - Windows PowerShell 5.1 only (scoped exception to the repo's PS7 rule).
-      - STA apartment, PresentationFramework/PresentationCore/WindowsBase only.
-        No third-party theme libraries; Fluent styling is hand-rolled XAML.
-      - One entry at a time in the UI. No CSV bulk import.
-      - Archive means Disable only. Groups are deferred this iteration.
-      - The cleartext password is shown on screen on purpose and written only
-        to the temporary credential record. It is never logged.
+    Règles de conception :
+      - Windows PowerShell 5.1 uniquement (exception au règle PS7 du dépôt).
+      - Application STA, uniquement PresentationFramework/PresentationCore/
+        WindowsBase. Aucune bibliothèque de thème tierce ; le style Fluent est
+        du XAML écrit à la main.
+      - Une saisie à la fois dans l'interface. Pas d'import CSV en masse.
+      - Archiver signifie uniquement désactiver. Les groupes sont reportés.
+      - Le mot de passe en clair est volontairement affiché à l'écran et écrit
+        uniquement dans le fichier de transmission. Il n'est jamais journalisé.
 .NOTES
-    Run with Windows PowerShell 5.1 on a host with the ActiveDirectory (RSAT)
-    module, as a domain user. Lab only; never point at production.
+    À lancer avec Windows PowerShell 5.1 sur un poste disposant du module
+    ActiveDirectory (RSAT), avec un compte de domaine. Labo uniquement ; ne
+    jamais viser la production.
 #>
 [CmdletBinding()]
 param(
@@ -31,9 +35,9 @@ param(
 Set-StrictMode -Version 2.0
 $ErrorActionPreference = 'Stop'
 
-# --- STA guard ---------------------------------------------------------------
-# WPF requires a single-threaded apartment. If we were launched from an MTA host
-# (some automation shells), relaunch ourselves in STA and exit this instance.
+# --- Garde STA ----------------------------------------------------------------
+# WPF exige un appartement mono-thread. Si nous sommes lancés depuis une hôte
+# MTA, nous relançons en STA et nous quittons cette instance.
 if ([System.Threading.Thread]::CurrentThread.GetApartmentState() -ne [System.Threading.ApartmentState]::STA) {
     $relaunch = New-Object System.Diagnostics.ProcessStartInfo
     $relaunch.FileName = 'powershell.exe'
@@ -46,7 +50,7 @@ if ([System.Threading.Thread]::CurrentThread.GetApartmentState() -ne [System.Thr
     return
 }
 
-# --- Assemblies and modules --------------------------------------------------
+# --- Assemblies et modules ---------------------------------------------------
 Add-Type -AssemblyName PresentationFramework
 Add-Type -AssemblyName PresentationCore
 Add-Type -AssemblyName WindowsBase
@@ -60,8 +64,8 @@ try {
     Import-Module -Name ActiveDirectory -ErrorAction Stop
 } catch {
     [void][System.Windows.MessageBox]::Show(
-        "The ActiveDirectory module (RSAT) is not available.`n`nInstall it from an elevated prompt with:`n  Add-WindowsCapability -Online -Name Rsat.ActiveDirectory.DS-LDS.Tools~~~~0.0.1.0`n`nDetails: $($_.Exception.Message)",
-        'AD Tools', [System.Windows.MessageBoxButton]::OK, [System.Windows.MessageBoxImage]::Error)
+        "Le module ActiveDirectory (RSAT) n'est pas disponible.`n`nInstallez-le depuis une invite élevée avec :`n  Add-WindowsCapability -Online -Name Rsat.ActiveDirectory.DS-LDS.Tools~~~~0.0.1.0`n`nDétail : $($_.Exception.Message)",
+        'Outils AD', [System.Windows.MessageBoxButton]::OK, [System.Windows.MessageBoxImage]::Error)
     return
 }
 
@@ -70,9 +74,9 @@ $xaml = @'
 <Window
     xmlns="http://schemas.microsoft.com/winfx/2006/xaml/presentation"
     xmlns:x="http://schemas.microsoft.com/winfx/2006/xaml"
-    Title="AD Tools"
-    Height="800" Width="1280"
-    MinHeight="660" MinWidth="1120"
+    Title="Outils AD"
+    Height="820" Width="1300"
+    MinHeight="680" MinWidth="1140"
     WindowStartupLocation="CenterScreen"
     Background="#F3F3F3"
     FontFamily="Segoe UI">
@@ -195,16 +199,16 @@ $xaml = @'
 
         <Border Grid.Row="0" Background="{StaticResource CardBrush}" BorderBrush="{StaticResource CardBorderBrush}" BorderThickness="0,0,0,1" Padding="20,14">
             <StackPanel>
-                <TextBlock Text="AD Tools" FontSize="22" FontWeight="SemiBold" Foreground="{StaticResource TextBrush}" />
-                <TextBlock x:Name="DomainLabel" Text="Domain: (loading...)" FontSize="13" Foreground="{StaticResource MutedBrush}" Margin="0,2,0,0" />
+                <TextBlock Text="Outils AD" FontSize="22" FontWeight="SemiBold" Foreground="{StaticResource TextBrush}" />
+                <TextBlock x:Name="DomainLabel" Text="Domaine : (chargement...)" FontSize="13" Foreground="{StaticResource MutedBrush}" Margin="0,2,0,0" />
             </StackPanel>
         </Border>
 
         <Grid Grid.Row="1">
             <Grid.ColumnDefinitions>
-                <ColumnDefinition Width="200" />
+                <ColumnDefinition Width="210" />
                 <ColumnDefinition Width="*" />
-                <ColumnDefinition Width="380" />
+                <ColumnDefinition Width="360" />
             </Grid.ColumnDefinitions>
 
             <Border Grid.Column="0" Background="{StaticResource CardBrush}" BorderBrush="{StaticResource CardBorderBrush}" BorderThickness="0,0,1,0">
@@ -214,27 +218,31 @@ $xaml = @'
             <Grid Grid.Column="1">
                 <ScrollViewer x:Name="PanelOu" VerticalScrollBarVisibility="Auto">
                     <StackPanel Margin="24">
-                        <TextBlock Style="{StaticResource SectionTitle}" Text="Create organizational unit" />
-                        <TextBlock Text="Creates a top-level OU and optionally seeds it with one agence per branch. Add departments to every new agence in the same action. Nothing is created until you press Apply All." Foreground="{StaticResource MutedBrush}" Margin="0,0,0,12" TextWrapping="Wrap" />
+                        <TextBlock Style="{StaticResource SectionTitle}" Text="Créer une OU" />
+                        <TextBlock Text="Crée une OU et, si vous le souhaitez, une agence par succursale ainsi qu'un département par agence. Rien n'est créé avant Tout appliquer." Foreground="{StaticResource MutedBrush}" Margin="0,0,0,12" TextWrapping="Wrap" />
                         <Border Style="{StaticResource Card}">
                             <StackPanel>
-                                <TextBlock Style="{StaticResource FieldLabel}" Text="Parent container" />
-                                <ComboBox x:Name="OuParentCombo" DisplayMemberPath="DisplayName" />
-                                <TextBlock Style="{StaticResource FieldLabel}" Text="New OU name" />
+                                <TextBlock Style="{StaticResource FieldLabel}" Text="Établissement" />
+                                <ComboBox x:Name="OuLvl1" DisplayMemberPath="Name" />
+                                <TextBlock Style="{StaticResource FieldLabel}" Text="Agence" />
+                                <ComboBox x:Name="OuLvl2" DisplayMemberPath="Name" />
+                                <TextBlock Style="{StaticResource FieldLabel}" Text="Département" />
+                                <ComboBox x:Name="OuLvl3" DisplayMemberPath="Name" />
+                                <TextBlock Style="{StaticResource FieldLabel}" Text="Nom de la nouvelle OU" />
                                 <TextBox x:Name="OuNameBox" />
-                                <TextBlock Style="{StaticResource FieldLabel}" Text="Agence names (one per line, optional)" />
+                                <TextBlock Style="{StaticResource FieldLabel}" Text="Noms des agences (un par ligne, facultatif)" />
                                 <TextBox x:Name="OuAgencesBox" AcceptsReturn="True" TextWrapping="Wrap" Height="72" VerticalScrollBarVisibility="Auto" />
-                                <TextBlock Style="{StaticResource FieldLabel}" Text="Department names for each agence (one per line, optional)" />
+                                <TextBlock Style="{StaticResource FieldLabel}" Text="Noms des départements pour chaque agence (un par ligne, facultatif)" />
                                 <TextBox x:Name="OuDepartmentsBox" AcceptsReturn="True" TextWrapping="Wrap" Height="72" VerticalScrollBarVisibility="Auto" />
                                 <StackPanel Orientation="Horizontal" Margin="0,18,0,0">
-                                    <Button x:Name="OuAddButton" Style="{StaticResource PrimaryButton}" Content="Add to queue" />
+                                    <Button x:Name="OuAddButton" Style="{StaticResource PrimaryButton}" Content="Ajouter à la file" />
                                 </StackPanel>
                             </StackPanel>
                         </Border>
                         <Border Style="{StaticResource Card}">
                             <StackPanel>
-                                <TextBlock Text="Queued by this action" FontWeight="SemiBold" Margin="0,0,0,8" />
-                                <TextBox x:Name="OuPreviewText" IsReadOnly="True" TextWrapping="Wrap" AcceptsReturn="True" MinHeight="90" Background="{StaticResource FieldBrush}" BorderThickness="0" FontFamily="Consolas" />
+                                <TextBlock Text="Ajouté par cette action" FontWeight="SemiBold" Margin="0,0,0,8" />
+                                <TextBox x:Name="OuPreviewText" IsReadOnly="True" TextWrapping="Wrap" AcceptsReturn="True" MinHeight="90" Background="{StaticResource FieldBrush}" BorderThickness="0" />
                             </StackPanel>
                         </Border>
                     </StackPanel>
@@ -242,25 +250,29 @@ $xaml = @'
 
                 <ScrollViewer x:Name="PanelAgence" VerticalScrollBarVisibility="Auto" Visibility="Collapsed">
                     <StackPanel Margin="24">
-                        <TextBlock Style="{StaticResource SectionTitle}" Text="Add agence" />
-                        <TextBlock Text="Adds one OU per agence under an existing or queued container. Nothing is created until you press Apply All." Foreground="{StaticResource MutedBrush}" Margin="0,0,0,12" TextWrapping="Wrap" />
+                        <TextBlock Style="{StaticResource SectionTitle}" Text="Ajouter une agence" />
+                        <TextBlock Text="Ajoute une OU par agence sous un conteneur existant ou en attente. Rien n'est créé avant Tout appliquer." Foreground="{StaticResource MutedBrush}" Margin="0,0,0,12" TextWrapping="Wrap" />
                         <Border Style="{StaticResource Card}">
                             <StackPanel>
-                                <TextBlock Style="{StaticResource FieldLabel}" Text="Parent container" />
-                                <ComboBox x:Name="AgParentCombo" DisplayMemberPath="DisplayName" />
-                                <TextBlock Style="{StaticResource FieldLabel}" Text="Agence names (one per line)" />
+                                <TextBlock Style="{StaticResource FieldLabel}" Text="Établissement" />
+                                <ComboBox x:Name="AgLvl1" DisplayMemberPath="Name" />
+                                <TextBlock Style="{StaticResource FieldLabel}" Text="Agence" />
+                                <ComboBox x:Name="AgLvl2" DisplayMemberPath="Name" />
+                                <TextBlock Style="{StaticResource FieldLabel}" Text="Département" />
+                                <ComboBox x:Name="AgLvl3" DisplayMemberPath="Name" />
+                                <TextBlock Style="{StaticResource FieldLabel}" Text="Noms des agences (un par ligne)" />
                                 <TextBox x:Name="AgNamesBox" AcceptsReturn="True" TextWrapping="Wrap" Height="88" VerticalScrollBarVisibility="Auto" />
-                                <TextBlock Style="{StaticResource FieldLabel}" Text="Department names for each agence (one per line, optional)" />
+                                <TextBlock Style="{StaticResource FieldLabel}" Text="Noms des départements pour chaque agence (un par ligne, facultatif)" />
                                 <TextBox x:Name="AgDepartmentsBox" AcceptsReturn="True" TextWrapping="Wrap" Height="72" VerticalScrollBarVisibility="Auto" />
                                 <StackPanel Orientation="Horizontal" Margin="0,18,0,0">
-                                    <Button x:Name="AgAddButton" Style="{StaticResource PrimaryButton}" Content="Add to queue" />
+                                    <Button x:Name="AgAddButton" Style="{StaticResource PrimaryButton}" Content="Ajouter à la file" />
                                 </StackPanel>
                             </StackPanel>
                         </Border>
                         <Border Style="{StaticResource Card}">
                             <StackPanel>
-                                <TextBlock Text="Queued by this action" FontWeight="SemiBold" Margin="0,0,0,8" />
-                                <TextBox x:Name="AgPreviewText" IsReadOnly="True" TextWrapping="Wrap" AcceptsReturn="True" MinHeight="90" Background="{StaticResource FieldBrush}" BorderThickness="0" FontFamily="Consolas" />
+                                <TextBlock Text="Ajouté par cette action" FontWeight="SemiBold" Margin="0,0,0,8" />
+                                <TextBox x:Name="AgPreviewText" IsReadOnly="True" TextWrapping="Wrap" AcceptsReturn="True" MinHeight="90" Background="{StaticResource FieldBrush}" BorderThickness="0" />
                             </StackPanel>
                         </Border>
                     </StackPanel>
@@ -268,23 +280,27 @@ $xaml = @'
 
                 <ScrollViewer x:Name="PanelDepartment" VerticalScrollBarVisibility="Auto" Visibility="Collapsed">
                     <StackPanel Margin="24">
-                        <TextBlock Style="{StaticResource SectionTitle}" Text="Add department" />
-                        <TextBlock Text="Adds one OU per department under an agence. Users live in department OUs. Nothing is created until you press Apply All." Foreground="{StaticResource MutedBrush}" Margin="0,0,0,12" TextWrapping="Wrap" />
+                        <TextBlock Style="{StaticResource SectionTitle}" Text="Ajouter un département" />
+                        <TextBlock Text="Ajoute une OU par département sous une agence. Les utilisateurs vivent dans les OU de département. Rien n'est créé avant Tout appliquer." Foreground="{StaticResource MutedBrush}" Margin="0,0,0,12" TextWrapping="Wrap" />
                         <Border Style="{StaticResource Card}">
                             <StackPanel>
-                                <TextBlock Style="{StaticResource FieldLabel}" Text="Parent agence" />
-                                <ComboBox x:Name="DepParentCombo" DisplayMemberPath="DisplayName" />
-                                <TextBlock Style="{StaticResource FieldLabel}" Text="Department names (one per line)" />
+                                <TextBlock Style="{StaticResource FieldLabel}" Text="Établissement" />
+                                <ComboBox x:Name="DepLvl1" DisplayMemberPath="Name" />
+                                <TextBlock Style="{StaticResource FieldLabel}" Text="Agence" />
+                                <ComboBox x:Name="DepLvl2" DisplayMemberPath="Name" />
+                                <TextBlock Style="{StaticResource FieldLabel}" Text="Département" />
+                                <ComboBox x:Name="DepLvl3" DisplayMemberPath="Name" />
+                                <TextBlock Style="{StaticResource FieldLabel}" Text="Noms des départements (un par ligne)" />
                                 <TextBox x:Name="DepNamesBox" AcceptsReturn="True" TextWrapping="Wrap" Height="88" VerticalScrollBarVisibility="Auto" />
                                 <StackPanel Orientation="Horizontal" Margin="0,18,0,0">
-                                    <Button x:Name="DepAddButton" Style="{StaticResource PrimaryButton}" Content="Add to queue" />
+                                    <Button x:Name="DepAddButton" Style="{StaticResource PrimaryButton}" Content="Ajouter à la file" />
                                 </StackPanel>
                             </StackPanel>
                         </Border>
                         <Border Style="{StaticResource Card}">
                             <StackPanel>
-                                <TextBlock Text="Queued by this action" FontWeight="SemiBold" Margin="0,0,0,8" />
-                                <TextBox x:Name="DepPreviewText" IsReadOnly="True" TextWrapping="Wrap" AcceptsReturn="True" MinHeight="90" Background="{StaticResource FieldBrush}" BorderThickness="0" FontFamily="Consolas" />
+                                <TextBlock Text="Ajouté par cette action" FontWeight="SemiBold" Margin="0,0,0,8" />
+                                <TextBox x:Name="DepPreviewText" IsReadOnly="True" TextWrapping="Wrap" AcceptsReturn="True" MinHeight="90" Background="{StaticResource FieldBrush}" BorderThickness="0" />
                             </StackPanel>
                         </Border>
                     </StackPanel>
@@ -292,29 +308,33 @@ $xaml = @'
 
                 <ScrollViewer x:Name="PanelUser" VerticalScrollBarVisibility="Auto" Visibility="Collapsed">
                     <StackPanel Margin="24">
-                        <TextBlock Style="{StaticResource SectionTitle}" Text="Create user" />
-                        <TextBlock Text="Queues one user in a department OU. The password is written to the credential record on success. Nothing is created until you press Apply All." Foreground="{StaticResource MutedBrush}" Margin="0,0,0,12" TextWrapping="Wrap" />
+                        <TextBlock Style="{StaticResource SectionTitle}" Text="Créer un utilisateur" />
+                        <TextBlock Text="Ajoute un utilisateur dans un département. Le mot de passe est écrit dans le fichier de transmission en cas de succès. Rien n'est créé avant Tout appliquer." Foreground="{StaticResource MutedBrush}" Margin="0,0,0,12" TextWrapping="Wrap" />
                         <Border Style="{StaticResource Card}">
                             <StackPanel>
-                                <Grid>
+                                <TextBlock Style="{StaticResource FieldLabel}" Text="Établissement" />
+                                <ComboBox x:Name="UserLvl1" DisplayMemberPath="Name" />
+                                <TextBlock Style="{StaticResource FieldLabel}" Text="Agence" />
+                                <ComboBox x:Name="UserLvl2" DisplayMemberPath="Name" />
+                                <TextBlock Style="{StaticResource FieldLabel}" Text="Département" />
+                                <ComboBox x:Name="UserLvl3" DisplayMemberPath="Name" />
+                                <Grid Margin="0,10,0,0">
                                     <Grid.ColumnDefinitions>
                                         <ColumnDefinition Width="*" />
                                         <ColumnDefinition Width="16" />
                                         <ColumnDefinition Width="*" />
                                     </Grid.ColumnDefinitions>
                                     <StackPanel Grid.Column="0">
-                                        <TextBlock Style="{StaticResource FieldLabel}" Text="Given name" />
+                                        <TextBlock Style="{StaticResource FieldLabel}" Text="Prénom" />
                                         <TextBox x:Name="UserGivenBox" />
                                     </StackPanel>
                                     <StackPanel Grid.Column="2">
-                                        <TextBlock Style="{StaticResource FieldLabel}" Text="Surname" />
+                                        <TextBlock Style="{StaticResource FieldLabel}" Text="Nom" />
                                         <TextBox x:Name="UserSurnameBox" />
                                     </StackPanel>
                                 </Grid>
-                                <TextBlock Style="{StaticResource FieldLabel}" Text="User name (derived)" />
+                                <TextBlock Style="{StaticResource FieldLabel}" Text="Identifiant (calculé)" />
                                 <TextBox x:Name="UserSamBox" IsReadOnly="True" Background="{StaticResource FieldBrush}" />
-                                <TextBlock Style="{StaticResource FieldLabel}" Text="Department OU" />
-                                <ComboBox x:Name="UserOuCombo" DisplayMemberPath="DisplayName" />
                                 <Grid Margin="0,14,0,0">
                                     <Grid.ColumnDefinitions>
                                         <ColumnDefinition Width="*" />
@@ -322,22 +342,22 @@ $xaml = @'
                                         <ColumnDefinition Width="*" />
                                     </Grid.ColumnDefinitions>
                                     <StackPanel Grid.Column="0">
-                                        <Button x:Name="UserGeneratePasswordButton" Style="{StaticResource SecondaryButton}" Content="Generate password" Margin="0" HorizontalAlignment="Left" />
+                                        <Button x:Name="UserGeneratePasswordButton" Style="{StaticResource SecondaryButton}" Content="Générer le mot de passe" Margin="0" HorizontalAlignment="Left" />
                                     </StackPanel>
                                     <StackPanel Grid.Column="2">
-                                        <TextBlock Style="{StaticResource FieldLabel}" Text="Password (shown in clear on purpose)" Margin="0,0,0,4" />
+                                        <TextBlock Style="{StaticResource FieldLabel}" Text="Mot de passe (affiché en clair volontairement)" Margin="0,0,0,4" />
                                         <TextBox x:Name="UserPasswordBox" IsReadOnly="True" Background="{StaticResource FieldBrush}" FontFamily="Consolas" />
                                     </StackPanel>
                                 </Grid>
                                 <StackPanel Orientation="Horizontal" Margin="0,18,0,0">
-                                    <Button x:Name="UserAddButton" Style="{StaticResource PrimaryButton}" Content="Add to queue" />
+                                    <Button x:Name="UserAddButton" Style="{StaticResource PrimaryButton}" Content="Ajouter à la file" />
                                 </StackPanel>
                             </StackPanel>
                         </Border>
                         <Border Style="{StaticResource Card}">
                             <StackPanel>
-                                <TextBlock Text="Queued by this action" FontWeight="SemiBold" Margin="0,0,0,8" />
-                                <TextBox x:Name="UserPreviewText" IsReadOnly="True" TextWrapping="Wrap" AcceptsReturn="True" MinHeight="110" Background="{StaticResource FieldBrush}" BorderThickness="0" FontFamily="Consolas" />
+                                <TextBlock Text="Ajouté par cette action" FontWeight="SemiBold" Margin="0,0,0,8" />
+                                <TextBox x:Name="UserPreviewText" IsReadOnly="True" TextWrapping="Wrap" AcceptsReturn="True" MinHeight="110" Background="{StaticResource FieldBrush}" BorderThickness="0" />
                             </StackPanel>
                         </Border>
                     </StackPanel>
@@ -345,11 +365,11 @@ $xaml = @'
 
                 <ScrollViewer x:Name="PanelArchive" VerticalScrollBarVisibility="Auto" Visibility="Collapsed">
                     <StackPanel Margin="24">
-                        <TextBlock Style="{StaticResource SectionTitle}" Text="Archive user" />
-                        <TextBlock Text="Queues an account disable. The user is not deleted and not moved. Nothing happens until you press Apply All." Foreground="{StaticResource MutedBrush}" Margin="0,0,0,12" TextWrapping="Wrap" />
+                        <TextBlock Style="{StaticResource SectionTitle}" Text="Archiver un utilisateur" />
+                        <TextBlock Text="Ajoute une désactivation de compte. L'utilisateur n'est ni supprimé ni déplacé. Rien n'est fait avant Tout appliquer." Foreground="{StaticResource MutedBrush}" Margin="0,0,0,12" TextWrapping="Wrap" />
                         <Border Style="{StaticResource Card}">
                             <StackPanel>
-                                <TextBlock Style="{StaticResource FieldLabel}" Text="User (SamAccountName)" />
+                                <TextBlock Style="{StaticResource FieldLabel}" Text="Utilisateur (SamAccountName)" />
                                 <Grid>
                                     <Grid.ColumnDefinitions>
                                         <ColumnDefinition Width="*" />
@@ -357,19 +377,19 @@ $xaml = @'
                                         <ColumnDefinition Width="Auto" />
                                     </Grid.ColumnDefinitions>
                                     <TextBox Grid.Column="0" x:Name="ArchiveUserBox" />
-                                    <Button Grid.Column="2" x:Name="ArchiveLoadButton" Style="{StaticResource SecondaryButton}" Content="Load" Margin="0" />
+                                    <Button Grid.Column="2" x:Name="ArchiveLoadButton" Style="{StaticResource SecondaryButton}" Content="Charger" Margin="0" />
                                 </Grid>
-                                <TextBlock Style="{StaticResource FieldLabel}" Text="Account" />
+                                <TextBlock Style="{StaticResource FieldLabel}" Text="Compte" />
                                 <TextBox x:Name="ArchiveInfoText" IsReadOnly="True" TextWrapping="Wrap" AcceptsReturn="True" Background="{StaticResource FieldBrush}" BorderThickness="0" MinHeight="70" />
                                 <StackPanel Orientation="Horizontal" Margin="0,18,0,0">
-                                    <Button x:Name="ArchiveAddButton" Style="{StaticResource PrimaryButton}" Content="Add to queue" />
+                                    <Button x:Name="ArchiveAddButton" Style="{StaticResource PrimaryButton}" Content="Ajouter à la file" />
                                 </StackPanel>
                             </StackPanel>
                         </Border>
                         <Border Style="{StaticResource Card}">
                             <StackPanel>
-                                <TextBlock Text="Queued by this action" FontWeight="SemiBold" Margin="0,0,0,8" />
-                                <TextBox x:Name="ArchivePreviewText" IsReadOnly="True" TextWrapping="Wrap" AcceptsReturn="True" MinHeight="90" Background="{StaticResource FieldBrush}" BorderThickness="0" FontFamily="Consolas" />
+                                <TextBlock Text="Ajouté par cette action" FontWeight="SemiBold" Margin="0,0,0,8" />
+                                <TextBox x:Name="ArchivePreviewText" IsReadOnly="True" TextWrapping="Wrap" AcceptsReturn="True" MinHeight="90" Background="{StaticResource FieldBrush}" BorderThickness="0" />
                             </StackPanel>
                         </Border>
                     </StackPanel>
@@ -385,25 +405,25 @@ $xaml = @'
                     </Grid.RowDefinitions>
 
                     <StackPanel Grid.Row="0">
-                        <TextBlock Text="Queue" FontSize="18" FontWeight="SemiBold" Foreground="{StaticResource TextBrush}" />
-                        <TextBlock x:Name="QueueCountText" Text="Nothing queued." FontSize="13" Foreground="{StaticResource MutedBrush}" Margin="0,2,0,0" />
+                        <TextBlock Text="File d'attente" FontSize="18" FontWeight="SemiBold" Foreground="{StaticResource TextBrush}" />
+                        <TextBlock x:Name="QueueCountText" Text="Rien en attente." FontSize="13" Foreground="{StaticResource MutedBrush}" Margin="0,2,0,0" />
                     </StackPanel>
 
-                    <ListBox Grid.Row="1" x:Name="QueueList" Margin="0,12,0,0" DisplayMemberPath="Label" FontFamily="Consolas" FontSize="12" />
+                    <ListBox Grid.Row="1" x:Name="QueueList" Margin="0,12,0,0" DisplayMemberPath="Label" FontFamily="Consolas" FontSize="11" />
 
                     <StackPanel Grid.Row="2" Margin="0,12,0,0">
                         <StackPanel Orientation="Horizontal">
-                            <Button x:Name="QueueApplyButton" Style="{StaticResource PrimaryButton}" Content="Apply all" IsEnabled="False" />
-                            <Button x:Name="QueueRemoveButton" Style="{StaticResource SecondaryButton}" Content="Remove selected" IsEnabled="False" />
+                            <Button x:Name="QueueApplyButton" Style="{StaticResource PrimaryButton}" Content="Tout appliquer" IsEnabled="False" />
+                            <Button x:Name="QueueRemoveButton" Style="{StaticResource SecondaryButton}" Content="Supprimer" IsEnabled="False" />
                         </StackPanel>
-                        <Button x:Name="QueueClearButton" Style="{StaticResource SecondaryButton}" Content="Clear queue" HorizontalAlignment="Left" Margin="0,8,0,0" />
+                        <Button x:Name="QueueClearButton" Style="{StaticResource SecondaryButton}" Content="Vider la file" HorizontalAlignment="Left" Margin="0,8,0,0" />
                     </StackPanel>
                 </Grid>
             </Border>
         </Grid>
 
         <Border Grid.Row="2" Background="{StaticResource CardBrush}" BorderBrush="{StaticResource CardBorderBrush}" BorderThickness="0,1,0,0" Padding="20,10">
-            <TextBlock x:Name="StatusText" Text="Ready." FontSize="13" Foreground="{StaticResource MutedBrush}" TextWrapping="Wrap" />
+            <TextBlock x:Name="StatusText" Text="Prêt." FontSize="13" Foreground="{StaticResource MutedBrush}" TextWrapping="Wrap" />
         </Border>
     </Grid>
 </Window>
@@ -412,18 +432,18 @@ $xaml = @'
 $reader = New-Object System.Xml.XmlNodeReader ([xml]$xaml)
 $window = [System.Windows.Markup.XamlReader]::Load($reader)
 
-# --- Element handles ---------------------------------------------------------
-# Collect every named control once so the event handlers stay readable and we
-# avoid repeating FindName calls throughout the wiring below.
+# --- Prises sur les contrôles ------------------------------------------------
+# Chaque contrôle nommé est collecté une seule fois afin que les gestionnaires
+# restent lisibles et que nous n'ayons pas à répéter FindName.
 $ui = @{}
 foreach ($name in @(
         'DomainLabel', 'StatusText', 'NavList',
         'PanelOu', 'PanelAgence', 'PanelDepartment', 'PanelUser', 'PanelArchive',
-        'OuParentCombo', 'OuNameBox', 'OuAgencesBox', 'OuDepartmentsBox',
+        'OuLvl1', 'OuLvl2', 'OuLvl3', 'OuNameBox', 'OuAgencesBox', 'OuDepartmentsBox',
         'OuAddButton', 'OuPreviewText',
-        'AgParentCombo', 'AgNamesBox', 'AgDepartmentsBox', 'AgAddButton', 'AgPreviewText',
-        'DepParentCombo', 'DepNamesBox', 'DepAddButton', 'DepPreviewText',
-        'UserGivenBox', 'UserSurnameBox', 'UserSamBox', 'UserOuCombo',
+        'AgLvl1', 'AgLvl2', 'AgLvl3', 'AgNamesBox', 'AgDepartmentsBox', 'AgAddButton', 'AgPreviewText',
+        'DepLvl1', 'DepLvl2', 'DepLvl3', 'DepNamesBox', 'DepAddButton', 'DepPreviewText',
+        'UserLvl1', 'UserLvl2', 'UserLvl3', 'UserGivenBox', 'UserSurnameBox', 'UserSamBox',
         'UserGeneratePasswordButton', 'UserPasswordBox', 'UserAddButton', 'UserPreviewText',
         'ArchiveUserBox', 'ArchiveLoadButton', 'ArchiveInfoText', 'ArchiveAddButton', 'ArchivePreviewText',
         'QueueList', 'QueueCountText', 'QueueApplyButton', 'QueueRemoveButton', 'QueueClearButton'
@@ -431,17 +451,121 @@ foreach ($name in @(
     $ui[$name] = $window.FindName($name)
 }
 
-# --- Script state ------------------------------------------------------------
-# The queue holds fully-resolved plans. A queued OU can be selected as the
-# parent of a later action, so a parent is always enqueued before its child and
-# execution order is safe.
+# --- État --------------------------------------------------------------------
+# La file contient des plans entièrement résolus. Une OU mise en file peut être
+# choisie comme parent d'une action ultérieure : un parent est donc toujours mis
+# en file avant son enfant, et l'ordre d'exécution est sûr.
 $script:queue = New-Object System.Collections.Generic.List[object]
 $script:existingOus = @()
+$script:ouNodes = @()
+$script:rootDn = ''
+$script:syncingCascade = $false
 $script:generatedPassword = $null
 $script:archiveUser = $null
 $script:recordDirectory = $RecordDirectory
 
-# --- UI helpers --------------------------------------------------------------
+# --- Aides à la manipulation des DN ------------------------------------------
+function Get-AdtDnParts {
+    # Découpe un DN en ses RDN, en respectant les virgules échappées.
+    [CmdletBinding()]
+    [OutputType([string[]])]
+    param(
+        [Parameter()]
+        [AllowEmptyString()]
+        [string]$DistinguishedName
+    )
+
+    $parts = New-Object System.Collections.Generic.List[string]
+    $current = New-Object System.Text.StringBuilder
+    for ($i = 0; $i -lt $DistinguishedName.Length; $i++) {
+        $character = $DistinguishedName[$i]
+        if ($character -eq '\' -and ($i + 1) -lt $DistinguishedName.Length) {
+            [void]$current.Append($character)
+            [void]$current.Append($DistinguishedName[$i + 1])
+            $i++
+            continue
+        }
+        if ($character -eq ',') {
+            $parts.Add($current.ToString())
+            [void]$current.Clear()
+            continue
+        }
+        [void]$current.Append($character)
+    }
+    if ($current.Length -gt 0) {
+        $parts.Add($current.ToString())
+    }
+    return [string[]]$parts.ToArray()
+}
+
+function Get-AdtDnValue {
+    # Renvoie la valeur du premier RDN : "OU=RH,OU=Lyon,..." -> "RH".
+    [CmdletBinding()]
+    [OutputType([string])]
+    param(
+        [Parameter()]
+        [AllowEmptyString()]
+        [string]$DistinguishedName
+    )
+
+    $parts = @(Get-AdtDnParts -DistinguishedName $DistinguishedName)
+    if ($parts.Count -eq 0) {
+        return $DistinguishedName
+    }
+    $first = $parts[0]
+    $separator = $first.IndexOf('=')
+    if ($separator -lt 0) {
+        return $first
+    }
+    return $first.Substring($separator + 1).Replace('\,', ',').Replace('\\', '\')
+}
+
+function Get-AdtDnParent {
+    # Renvoie le DN du parent, ou une chaîne vide pour la racine.
+    [CmdletBinding()]
+    [OutputType([string])]
+    param(
+        [Parameter()]
+        [AllowEmptyString()]
+        [string]$DistinguishedName
+    )
+
+    $parts = @(Get-AdtDnParts -DistinguishedName $DistinguishedName)
+    if ($parts.Count -le 1) {
+        return ''
+    }
+    return [string]($parts[1..($parts.Count - 1)] -join ',')
+}
+
+function Get-AdtDnDisplayPath {
+    # Convertit un DN en chemin lisible : "Entreprises / Lyon / RH".
+    [CmdletBinding()]
+    [OutputType([string])]
+    param(
+        [Parameter()]
+        [AllowEmptyString()]
+        [string]$DistinguishedName
+    )
+
+    $names = New-Object System.Collections.Generic.List[string]
+    foreach ($part in @(Get-AdtDnParts -DistinguishedName $DistinguishedName)) {
+        $separator = $part.IndexOf('=')
+        if ($separator -lt 0) {
+            continue
+        }
+        $type = $part.Substring(0, $separator)
+        if ($type -eq 'OU' -or $type -eq 'CN') {
+            $value = $part.Substring($separator + 1).Replace('\,', ',').Replace('\\', '\')
+            $names.Insert(0, $value)
+        }
+    }
+    if ($names.Count -eq 0) {
+        return $DistinguishedName
+    }
+    return [string]($names -join ' / ')
+}
+
+# --- Aides d'interface -------------------------------------------------------
 function Write-AdtStatus {
     [CmdletBinding()]
     param(
@@ -474,7 +598,7 @@ function Show-AdtMessage {
         [string]$Text,
 
         [Parameter()]
-        [string]$Title = 'AD Tools',
+        [string]$Title = 'Outils AD',
 
         [Parameter()]
         [ValidateSet('Information', 'Warning', 'Error')]
@@ -499,7 +623,7 @@ function Confirm-AdtAction {
         [string]$Text,
 
         [Parameter()]
-        [string]$Title = 'Confirm'
+        [string]$Title = 'Confirmation'
     )
 
     $result = [System.Windows.MessageBox]::Show(
@@ -508,7 +632,7 @@ function Confirm-AdtAction {
 }
 
 function Get-AdtMultilineItems {
-    # Split a multi-line text box into a de-duplicated list of non-empty names.
+    # Découpe une zone de texte multi-lignes en une liste sans doublon.
     [CmdletBinding()]
     [OutputType([string[]])]
     param(
@@ -528,7 +652,7 @@ function Get-AdtMultilineItems {
 }
 
 function Get-AdtPendingOuPaths {
-    # Distinguished names of OUs that are queued but not yet created.
+    # DN des OU mises en file mais pas encore créées.
     [CmdletBinding()]
     [OutputType([string[]])]
     param()
@@ -542,9 +666,10 @@ function Get-AdtPendingOuPaths {
     return [string[]]$paths.ToArray()
 }
 
-function Sync-AdtOuChoices {
-    # Refresh the cached OUs and repopulate every parent picker. Queued OUs are
-    # offered alongside real ones so a user can target an OU not created yet.
+# --- Arborescence des OU -----------------------------------------------------
+function Sync-AdtOuTree {
+    # Reconstruit la liste des nœuds (réels + en attente) et resynchronise les
+    # quatre cascades.
     [CmdletBinding()]
     param()
 
@@ -555,35 +680,148 @@ function Sync-AdtOuChoices {
         Write-AdtStatus -Text $_.Exception.Message -Kind 'Error'
     }
 
-    $choices = New-Object System.Collections.Generic.List[object]
-    $root = [string](Get-AdtDefaultSearchBase)
-    $choices.Add([pscustomobject]@{ DisplayName = $root; DistinguishedName = $root; Pending = $false })
+    try {
+        $script:rootDn = [string](Get-AdtDefaultSearchBase)
+    } catch {
+        $script:rootDn = ''
+        Write-AdtStatus -Text $_.Exception.Message -Kind 'Error'
+    }
 
+    $nodes = New-Object System.Collections.Generic.List[object]
+    if ($script:rootDn) {
+        $nodes.Add([pscustomobject]@{
+                DistinguishedName = $script:rootDn
+                Name = '(racine du domaine)'
+                ParentDn = ''
+                Pending = $false
+                IsRoot = $true
+            })
+    }
     foreach ($ou in $script:existingOus) {
         $dn = [string]$ou.DistinguishedName
-        if ($dn -ne $root) {
-            $choices.Add([pscustomobject]@{ DisplayName = $dn; DistinguishedName = $dn; Pending = $false })
-        }
+        $nodes.Add([pscustomobject]@{
+                DistinguishedName = $dn
+                Name = Get-AdtDnValue -DistinguishedName $dn
+                ParentDn = Get-AdtDnParent -DistinguishedName $dn
+                Pending = $false
+                IsRoot = $false
+            })
     }
     foreach ($dn in Get-AdtPendingOuPaths) {
-        if (-not ($choices | Where-Object { $_.DistinguishedName -eq $dn })) {
-            $choices.Add([pscustomobject]@{ DisplayName = "$dn   (queued)"; DistinguishedName = $dn; Pending = $true })
+        if (-not ($nodes | Where-Object { $_.DistinguishedName -eq $dn })) {
+            $nodes.Add([pscustomobject]@{
+                    DistinguishedName = $dn
+                    Name = '{0} (en attente)' -f (Get-AdtDnValue -DistinguishedName $dn)
+                    ParentDn = Get-AdtDnParent -DistinguishedName $dn
+                    Pending = $true
+                    IsRoot = $false
+                })
         }
     }
+    $script:ouNodes = @($nodes)
 
-    foreach ($combo in @($ui['OuParentCombo'], $ui['AgParentCombo'], $ui['DepParentCombo'], $ui['UserOuCombo'])) {
-        $previous = $null
-        if ($combo.SelectedItem) {
-            $previous = [string]$combo.SelectedItem.DistinguishedName
+    Sync-AdtCascade -First 'OuLvl1' -Second 'OuLvl2' -Third 'OuLvl3'
+    Sync-AdtCascade -First 'AgLvl1' -Second 'AgLvl2' -Third 'AgLvl3'
+    Sync-AdtCascade -First 'DepLvl1' -Second 'DepLvl2' -Third 'DepLvl3'
+    Sync-AdtCascade -First 'UserLvl1' -Second 'UserLvl2' -Third 'UserLvl3'
+}
+
+function Sync-AdtCascade {
+    # Remplit une cascade à trois niveaux. Le niveau 1 propose la racine du
+    # domaine puis les établissements ; chaque niveau suivant propose les
+    # enfants de la sélection du niveau précédent.
+    [CmdletBinding()]
+    param(
+        [Parameter(Mandatory = $true)]
+        [string]$First,
+
+        [Parameter(Mandatory = $true)]
+        [string]$Second,
+
+        [Parameter(Mandatory = $true)]
+        [string]$Third
+    )
+
+    $script:syncingCascade = $true
+    try {
+        $c1 = $ui[$First]
+        $c2 = $ui[$Second]
+        $c3 = $ui[$Third]
+
+        $previous1 = $null
+        if ($c1.SelectedItem) {
+            $previous1 = [string]$c1.SelectedItem.DistinguishedName
         }
-        $combo.ItemsSource = $choices
-        $match = $choices | Where-Object { $_.DistinguishedName -eq $previous } | Select-Object -First 1
-        if ($match) {
-            $combo.SelectedItem = $match
-        } elseif ($choices.Count -gt 0) {
-            $combo.SelectedIndex = 0
+        $previous2 = $null
+        if ($c2.SelectedItem) {
+            $previous2 = [string]$c2.SelectedItem.DistinguishedName
+        }
+        $previous3 = $null
+        if ($c3.SelectedItem) {
+            $previous3 = [string]$c3.SelectedItem.DistinguishedName
+        }
+
+        $level1 = @($script:ouNodes | Where-Object { $_.IsRoot -or $_.ParentDn -eq $script:rootDn })
+        $c1.ItemsSource = $level1
+        $match1 = $level1 | Where-Object { $_.DistinguishedName -eq $previous1 } | Select-Object -First 1
+        if ($match1) {
+            $c1.SelectedItem = $match1
+        } elseif ($level1.Count -gt 0) {
+            $c1.SelectedIndex = 0
+        }
+
+        $children1 = @()
+        if ($c1.SelectedItem) {
+            $children1 = @($script:ouNodes | Where-Object {
+                    -not $_.IsRoot -and $_.ParentDn -eq $c1.SelectedItem.DistinguishedName })
+        }
+        $c2.ItemsSource = $children1
+        $match2 = $children1 | Where-Object { $_.DistinguishedName -eq $previous2 } | Select-Object -First 1
+        if ($match2) {
+            $c2.SelectedItem = $match2
+        } elseif ($children1.Count -gt 0) {
+            $c2.SelectedIndex = 0
+        }
+
+        $children2 = @()
+        if ($c2.SelectedItem) {
+            $children2 = @($script:ouNodes | Where-Object {
+                    -not $_.IsRoot -and $_.ParentDn -eq $c2.SelectedItem.DistinguishedName })
+        }
+        $c3.ItemsSource = $children2
+        $match3 = $children2 | Where-Object { $_.DistinguishedName -eq $previous3 } | Select-Object -First 1
+        if ($match3) {
+            $c3.SelectedItem = $match3
+        } elseif ($children2.Count -gt 0) {
+            $c3.SelectedIndex = 0
+        }
+    } finally {
+        $script:syncingCascade = $false
+    }
+}
+
+function Get-AdtCascadeSelection {
+    # Le parent effectif est la sélection la plus profonde non vide.
+    [CmdletBinding()]
+    [OutputType([string])]
+    param(
+        [Parameter(Mandatory = $true)]
+        [string]$First,
+
+        [Parameter(Mandatory = $true)]
+        [string]$Second,
+
+        [Parameter(Mandatory = $true)]
+        [string]$Third
+    )
+
+    foreach ($name in @($Third, $Second, $First)) {
+        $item = $ui[$name].SelectedItem
+        if ($item -and -not $item.IsRoot) {
+            return [string]$item.DistinguishedName
         }
     }
+    return [string]$script:rootDn
 }
 
 function Sync-AdtSamPreview {
@@ -621,7 +859,7 @@ function Sync-AdtPanelVisibility {
 }
 
 function Sync-AdtQueue {
-    # Rebind the queue list and keep the apply/remove buttons in step with it.
+    # Relie la liste de la file et aligne les boutons sur son contenu.
     [CmdletBinding()]
     param()
 
@@ -630,9 +868,9 @@ function Sync-AdtQueue {
 
     $count = $script:queue.Count
     if ($count -eq 0) {
-        $ui['QueueCountText'].Text = 'Nothing queued.'
+        $ui['QueueCountText'].Text = 'Rien en attente.'
     } else {
-        $ui['QueueCountText'].Text = "{0} action(s) pending." -f $count
+        $ui['QueueCountText'].Text = "{0} action(s) en attente." -f $count
     }
     $ui['QueueApplyButton'].IsEnabled = ($count -gt 0)
     $ui['QueueRemoveButton'].IsEnabled = ($count -gt 0)
@@ -647,7 +885,7 @@ function Add-AdtQueueItem {
 
     $script:queue.Add($Item)
     Sync-AdtQueue
-    Sync-AdtOuChoices
+    Sync-AdtOuTree
 }
 
 function Sync-AdtArchiveUser {
@@ -657,34 +895,34 @@ function Sync-AdtArchiveUser {
     try {
         $identity = $ui['ArchiveUserBox'].Text.Trim()
         if (-not $identity) {
-            Show-AdtMessage -Text 'Enter a user (SamAccountName) to load.' -Kind 'Warning'
+            Show-AdtMessage -Text 'Saisissez un utilisateur (SamAccountName) à charger.' -Kind 'Warning'
             return
         }
 
         $script:archiveUser = Get-AdtUser -Identity $identity
-        $state = 'Enabled'
+        $state = 'Activé'
         if (-not $script:archiveUser.Enabled) {
-            $state = 'Already disabled'
+            $state = 'Déjà désactivé'
         }
 
         $lines = @(
-            "SamAccountName : $($script:archiveUser.SamAccountName)"
-            "Display name   : $($script:archiveUser.DisplayName)"
-            "Distinguished  : $($script:archiveUser.DistinguishedName)"
-            "Status         : $state"
+            "Identifiant    : $($script:archiveUser.SamAccountName)"
+            "Nom affiché    : $($script:archiveUser.DisplayName)"
+            "DN             : $($script:archiveUser.DistinguishedName)"
+            "État           : $state"
         )
         $ui['ArchiveInfoText'].Text = ($lines -join [Environment]::NewLine)
-        Write-AdtStatus -Text "Loaded $($script:archiveUser.SamAccountName)."
+        Write-AdtStatus -Text "$($script:archiveUser.SamAccountName) chargé."
     } catch {
         Write-AdtStatus -Text $_.Exception.Message -Kind 'Error'
         Show-AdtMessage -Text $_.Exception.Message -Kind 'Error'
     }
 }
 
-# --- Queue builders ----------------------------------------------------------
+# --- Construction de la file -------------------------------------------------
 function Add-AdtOuPlan {
-    # Queue one OU plus, optionally, one child OU per agence and one grandchild
-    # OU per department under each agence.
+    # Met en file une OU, puis éventuellement une OU par agence et une par
+    # département sous chaque agence.
     [CmdletBinding()]
     [OutputType([string[]])]
     param(
@@ -702,14 +940,13 @@ function Add-AdtOuPlan {
     )
 
     $queued = New-Object System.Collections.Generic.List[string]
-    $parentDn = $ParentPath
-    $topDn = "OU=$Name,$parentDn"
+    $topDn = "OU=$Name,$ParentPath"
     Add-AdtQueueItem -Item ([pscustomobject]@{
             Kind = 'OU'
             Name = $Name
-            ParentPath = $parentDn
+            ParentPath = $ParentPath
             DistinguishedName = $topDn
-            Label = "OU     $topDn"
+            Label = "OU     $(Get-AdtDnDisplayPath -DistinguishedName $topDn)"
         })
     $queued.Add($topDn)
 
@@ -720,7 +957,7 @@ function Add-AdtOuPlan {
                 Name = $agence
                 ParentPath = $topDn
                 DistinguishedName = $agenceDn
-                Label = "OU     $agenceDn"
+                Label = "OU     $(Get-AdtDnDisplayPath -DistinguishedName $agenceDn)"
             })
         $queued.Add($agenceDn)
 
@@ -731,7 +968,7 @@ function Add-AdtOuPlan {
                     Name = $department
                     ParentPath = $agenceDn
                     DistinguishedName = $departmentDn
-                    Label = "OU     $departmentDn"
+                    Label = "OU     $(Get-AdtDnDisplayPath -DistinguishedName $departmentDn)"
                 })
             $queued.Add($departmentDn)
         }
@@ -740,10 +977,11 @@ function Add-AdtOuPlan {
     return [string[]]$queued.ToArray()
 }
 
-# --- Batch execution ---------------------------------------------------------
+# --- Exécution par lot -------------------------------------------------------
 function Invoke-AdtQueue {
-    # Execute the queue in dependency order: every OU first (in queue order, so
-    # a parent is always created before its child), then users, then archives.
+    # Exécute la file dans l'ordre des dépendances : toutes les OU d'abord (dans
+    # l'ordre de la file, donc un parent avant son enfant), puis les
+    # utilisateurs, puis les archivages.
     [CmdletBinding()]
     [OutputType([pscustomobject])]
     param()
@@ -801,83 +1039,105 @@ function Invoke-AdtQueue {
     }
 }
 
-# --- Event wiring ------------------------------------------------------------
+# --- Câblage des événements --------------------------------------------------
 
 $ui['NavList'].Add_SelectionChanged({ Sync-AdtPanelVisibility })
 
-# Create OU
+# Chaque cascade porte son identifiant dans le Tag du contrôle. Le gestionnaire
+# unique lit $this.Tag : ainsi il n'y a ni variable capturée ni GetNewClosure,
+# et $script:syncingCascade continue de désigner la portée du script. C'est ce
+# drapeau qui empêche la boucle de réentrée pendant qu'un niveau se remplit et
+# redéclenche SelectionChanged.
+$script:cascadeGroups = @(
+    @{ First = 'OuLvl1'; Second = 'OuLvl2'; Third = 'OuLvl3' },
+    @{ First = 'AgLvl1'; Second = 'AgLvl2'; Third = 'AgLvl3' },
+    @{ First = 'DepLvl1'; Second = 'DepLvl2'; Third = 'DepLvl3' },
+    @{ First = 'UserLvl1'; Second = 'UserLvl2'; Third = 'UserLvl3' }
+)
+foreach ($group in $script:cascadeGroups) {
+    foreach ($controlName in @($group.First, $group.Second, $group.Third)) {
+        $ui[$controlName].Tag = $group
+        $ui[$controlName].Add_SelectionChanged({
+                if ($script:syncingCascade) {
+                    return
+                }
+                $current = $this.Tag
+                Sync-AdtCascade -First $current.First -Second $current.Second -Third $current.Third
+            })
+    }
+}
+
+# Créer une OU
 $ui['OuAddButton'].Add_Click({
         try {
             $name = $ui['OuNameBox'].Text.Trim()
-            $parent = $ui['OuParentCombo'].SelectedItem
             if (-not $name) {
-                Show-AdtMessage -Text 'Enter a name for the new OU.' -Kind 'Warning'
+                Show-AdtMessage -Text 'Saisissez un nom pour la nouvelle OU.' -Kind 'Warning'
                 return
             }
-            if (-not $parent) {
-                Show-AdtMessage -Text 'Choose a parent container.' -Kind 'Warning'
+            $parentDn = Get-AdtCascadeSelection -First 'OuLvl1' -Second 'OuLvl2' -Third 'OuLvl3'
+            if (-not $parentDn) {
+                Show-AdtMessage -Text 'Choisissez un conteneur parent.' -Kind 'Warning'
                 return
             }
 
             $agences = @(Get-AdtMultilineItems -Text $ui['OuAgencesBox'].Text)
             $departments = @(Get-AdtMultilineItems -Text $ui['OuDepartmentsBox'].Text)
-            $parentDn = [string]$parent.DistinguishedName
 
             $queued = Add-AdtOuPlan -Name $name -ParentPath $parentDn -Agences $agences -Departments $departments
-            $ui['OuPreviewText'].Text = ($queued -join [Environment]::NewLine)
+            $ui['OuPreviewText'].Text = ($queued | ForEach-Object { Get-AdtDnDisplayPath -DistinguishedName $_ }) -join [Environment]::NewLine
             $ui['OuNameBox'].Text = ''
             $ui['OuAgencesBox'].Text = ''
             $ui['OuDepartmentsBox'].Text = ''
-            Write-AdtStatus -Text ("Queued {0} OU(s). Review the queue, then press Apply all." -f $queued.Count) -Kind 'Success'
+            Write-AdtStatus -Text ("{0} OU ajoutée(s) à la file. Vérifiez la file puis cliquez sur Tout appliquer." -f $queued.Count) -Kind 'Success'
         } catch {
             Write-AdtStatus -Text $_.Exception.Message -Kind 'Error'
             Show-AdtMessage -Text $_.Exception.Message -Kind 'Error'
         }
     })
 
-# Add agence
+# Ajouter une agence
 $ui['AgAddButton'].Add_Click({
         try {
-            $parent = $ui['AgParentCombo'].SelectedItem
-            if (-not $parent) {
-                Show-AdtMessage -Text 'Choose a parent container.' -Kind 'Warning'
+            $parentDn = Get-AdtCascadeSelection -First 'AgLvl1' -Second 'AgLvl2' -Third 'AgLvl3'
+            if (-not $parentDn) {
+                Show-AdtMessage -Text 'Choisissez un conteneur parent.' -Kind 'Warning'
                 return
             }
             $agences = @(Get-AdtMultilineItems -Text $ui['AgNamesBox'].Text)
             if ($agences.Count -eq 0) {
-                Show-AdtMessage -Text 'Enter at least one agence name.' -Kind 'Warning'
+                Show-AdtMessage -Text 'Saisissez au moins un nom d''agence.' -Kind 'Warning'
                 return
             }
             $departments = @(Get-AdtMultilineItems -Text $ui['AgDepartmentsBox'].Text)
 
             $queued = New-Object System.Collections.Generic.List[string]
             foreach ($agence in $agences) {
-                $queued.AddRange([string[]](Add-AdtOuPlan -Name $agence -ParentPath ([string]$parent.DistinguishedName) -Departments $departments))
+                $queued.AddRange([string[]](Add-AdtOuPlan -Name $agence -ParentPath $parentDn -Departments $departments))
             }
-            $ui['AgPreviewText'].Text = ($queued -join [Environment]::NewLine)
+            $ui['AgPreviewText'].Text = ($queued | ForEach-Object { Get-AdtDnDisplayPath -DistinguishedName $_ }) -join [Environment]::NewLine
             $ui['AgNamesBox'].Text = ''
             $ui['AgDepartmentsBox'].Text = ''
-            Write-AdtStatus -Text ("Queued {0} OU(s). Review the queue, then press Apply all." -f $queued.Count) -Kind 'Success'
+            Write-AdtStatus -Text ("{0} OU ajoutée(s) à la file. Vérifiez la file puis cliquez sur Tout appliquer." -f $queued.Count) -Kind 'Success'
         } catch {
             Write-AdtStatus -Text $_.Exception.Message -Kind 'Error'
             Show-AdtMessage -Text $_.Exception.Message -Kind 'Error'
         }
     })
 
-# Add department
+# Ajouter un département
 $ui['DepAddButton'].Add_Click({
         try {
-            $parent = $ui['DepParentCombo'].SelectedItem
-            if (-not $parent) {
-                Show-AdtMessage -Text 'Choose a parent agence.' -Kind 'Warning'
+            $parentDn = Get-AdtCascadeSelection -First 'DepLvl1' -Second 'DepLvl2' -Third 'DepLvl3'
+            if (-not $parentDn) {
+                Show-AdtMessage -Text 'Choisissez un conteneur parent.' -Kind 'Warning'
                 return
             }
             $departments = @(Get-AdtMultilineItems -Text $ui['DepNamesBox'].Text)
             if ($departments.Count -eq 0) {
-                Show-AdtMessage -Text 'Enter at least one department name.' -Kind 'Warning'
+                Show-AdtMessage -Text 'Saisissez au moins un nom de département.' -Kind 'Warning'
                 return
             }
-            $parentDn = [string]$parent.DistinguishedName
 
             $queued = New-Object System.Collections.Generic.List[string]
             foreach ($department in $departments) {
@@ -887,20 +1147,20 @@ $ui['DepAddButton'].Add_Click({
                         Name = $department
                         ParentPath = $parentDn
                         DistinguishedName = $dn
-                        Label = "OU     $dn"
+                        Label = "OU     $(Get-AdtDnDisplayPath -DistinguishedName $dn)"
                     })
                 $queued.Add($dn)
             }
-            $ui['DepPreviewText'].Text = ($queued -join [Environment]::NewLine)
+            $ui['DepPreviewText'].Text = ($queued | ForEach-Object { Get-AdtDnDisplayPath -DistinguishedName $_ }) -join [Environment]::NewLine
             $ui['DepNamesBox'].Text = ''
-            Write-AdtStatus -Text ("Queued {0} OU(s). Review the queue, then press Apply all." -f $queued.Count) -Kind 'Success'
+            Write-AdtStatus -Text ("{0} OU ajoutée(s) à la file. Vérifiez la file puis cliquez sur Tout appliquer." -f $queued.Count) -Kind 'Success'
         } catch {
             Write-AdtStatus -Text $_.Exception.Message -Kind 'Error'
             Show-AdtMessage -Text $_.Exception.Message -Kind 'Error'
         }
     })
 
-# Create user
+# Créer un utilisateur
 $ui['UserGivenBox'].Add_TextChanged({ Sync-AdtSamPreview })
 $ui['UserSurnameBox'].Add_TextChanged({ Sync-AdtSamPreview })
 
@@ -909,7 +1169,7 @@ $ui['UserGeneratePasswordButton'].Add_Click({
             $generated = New-AdtPassword
             $script:generatedPassword = [string]$generated.Password
             $ui['UserPasswordBox'].Text = $script:generatedPassword
-            Write-AdtStatus -Text 'Password generated.'
+            Write-AdtStatus -Text 'Mot de passe généré.'
         } catch {
             Write-AdtStatus -Text $_.Exception.Message -Kind 'Error'
             Show-AdtMessage -Text $_.Exception.Message -Kind 'Error'
@@ -920,13 +1180,13 @@ $ui['UserAddButton'].Add_Click({
         try {
             $given = $ui['UserGivenBox'].Text.Trim()
             $surname = $ui['UserSurnameBox'].Text.Trim()
-            $ou = $ui['UserOuCombo'].SelectedItem
             if (-not $given -or -not $surname) {
-                Show-AdtMessage -Text 'Enter a given name and a surname.' -Kind 'Warning'
+                Show-AdtMessage -Text 'Saisissez un prénom et un nom.' -Kind 'Warning'
                 return
             }
-            if (-not $ou) {
-                Show-AdtMessage -Text 'Choose a department OU.' -Kind 'Warning'
+            $path = Get-AdtCascadeSelection -First 'UserLvl1' -Second 'UserLvl2' -Third 'UserLvl3'
+            if (-not $path) {
+                Show-AdtMessage -Text 'Choisissez un département.' -Kind 'Warning'
                 return
             }
 
@@ -937,8 +1197,7 @@ $ui['UserAddButton'].Add_Click({
             }
 
             $sam = Get-AdtSamAccountName -GivenName $given -Surname $surname
-            $path = [string]$ou.DistinguishedName
-            $label = "USER   $sam   pw=$script:generatedPassword   ->  $path"
+            $displayPath = Get-AdtDnDisplayPath -DistinguishedName $path
 
             Add-AdtQueueItem -Item ([pscustomobject]@{
                     Kind = 'User'
@@ -947,16 +1206,16 @@ $ui['UserAddButton'].Add_Click({
                     SamAccountName = $sam
                     Path = $path
                     Password = $script:generatedPassword
-                    Label = $label
+                    Label = "UTIL   $sam -> $displayPath   mdp=$script:generatedPassword"
                 })
 
             $ui['UserPreviewText'].Text = (
-                "Queued user:" +
-                [Environment]::NewLine + "  Display name : $given $surname" +
-                [Environment]::NewLine + "  SamAccount   : $sam" +
-                [Environment]::NewLine + "  OU           : $path" +
-                [Environment]::NewLine + "  Password     : $script:generatedPassword" +
-                [Environment]::NewLine + "  Change password at next logon : no"
+                "Utilisateur ajouté : " +
+                [Environment]::NewLine + "  Nom complet  : $given $surname" +
+                [Environment]::NewLine + "  Identifiant  : $sam" +
+                [Environment]::NewLine + "  Département  : $displayPath" +
+                [Environment]::NewLine + "  Mot de passe : $script:generatedPassword" +
+                [Environment]::NewLine + "  Changement de mot de passe à la première connexion : non"
             )
 
             $script:generatedPassword = $null
@@ -964,20 +1223,20 @@ $ui['UserAddButton'].Add_Click({
             $ui['UserGivenBox'].Text = ''
             $ui['UserSurnameBox'].Text = ''
             $ui['UserSamBox'].Text = ''
-            Write-AdtStatus -Text "Queued $sam. Review the queue, then press Apply all." -Kind 'Success'
+            Write-AdtStatus -Text "$sam ajouté à la file. Vérifiez la file puis cliquez sur Tout appliquer." -Kind 'Success'
         } catch {
             Write-AdtStatus -Text $_.Exception.Message -Kind 'Error'
             Show-AdtMessage -Text $_.Exception.Message -Kind 'Error'
         }
     })
 
-# Archive user
+# Archiver un utilisateur
 $ui['ArchiveLoadButton'].Add_Click({ Sync-AdtArchiveUser })
 
 $ui['ArchiveAddButton'].Add_Click({
         try {
             if (-not $script:archiveUser) {
-                Show-AdtMessage -Text 'Load a user first.' -Kind 'Warning'
+                Show-AdtMessage -Text 'Chargez d''abord un utilisateur.' -Kind 'Warning'
                 return
             }
             $sam = [string]$script:archiveUser.SamAccountName
@@ -986,18 +1245,18 @@ $ui['ArchiveAddButton'].Add_Click({
                     Identity = $sam
                     Label = "ARCH  $sam"
                 })
-            $ui['ArchivePreviewText'].Text = "Queued disable for '$sam'."
+            $ui['ArchivePreviewText'].Text = "Désactivation de '$sam' ajoutée à la file."
             $ui['ArchiveUserBox'].Text = ''
             $ui['ArchiveInfoText'].Text = ''
             $script:archiveUser = $null
-            Write-AdtStatus -Text "Queued disable for $sam. Review the queue, then press Apply all." -Kind 'Success'
+            Write-AdtStatus -Text "Désactivation de $sam ajoutée à la file. Vérifiez la file puis cliquez sur Tout appliquer." -Kind 'Success'
         } catch {
             Write-AdtStatus -Text $_.Exception.Message -Kind 'Error'
             Show-AdtMessage -Text $_.Exception.Message -Kind 'Error'
         }
     })
 
-# Queue controls
+# Contrôles de la file
 $ui['QueueRemoveButton'].Add_Click({
         try {
             $selected = @($ui['QueueList'].SelectedItems)
@@ -1008,8 +1267,8 @@ $ui['QueueRemoveButton'].Add_Click({
                 [void]$script:queue.Remove($item)
             }
             Sync-AdtQueue
-            Sync-AdtOuChoices
-            Write-AdtStatus -Text ("Removed {0} queued action(s)." -f $selected.Count)
+            Sync-AdtOuTree
+            Write-AdtStatus -Text ("{0} action(s) supprimée(s) de la file." -f $selected.Count)
         } catch {
             Write-AdtStatus -Text $_.Exception.Message -Kind 'Error'
         }
@@ -1018,8 +1277,8 @@ $ui['QueueRemoveButton'].Add_Click({
 $ui['QueueClearButton'].Add_Click({
         $script:queue.Clear()
         Sync-AdtQueue
-        Sync-AdtOuChoices
-        Write-AdtStatus -Text 'Queue cleared.'
+        Sync-AdtOuTree
+        Write-AdtStatus -Text 'File vidée.'
     })
 
 $ui['QueueApplyButton'].Add_Click({
@@ -1032,29 +1291,29 @@ $ui['QueueApplyButton'].Add_Click({
             foreach ($item in $script:queue) {
                 $summary += "  $($item.Label)"
             }
-            $body = "Apply these {0} action(s) to the directory?`n`n{1}" -f $script:queue.Count, ($summary -join [Environment]::NewLine)
-            if (-not (Confirm-AdtAction -Text $body -Title 'Apply all')) {
+            $body = "Appliquer ces {0} action(s) à l'annuaire ?`n`n{1}" -f $script:queue.Count, ($summary -join [Environment]::NewLine)
+            if (-not (Confirm-AdtAction -Text $body -Title 'Tout appliquer')) {
                 return
             }
 
             $result = Invoke-AdtQueue
             $script:queue.Clear()
             Sync-AdtQueue
-            Sync-AdtOuChoices
+            Sync-AdtOuTree
 
             $lines = @(
-                "Succeeded : $($result.Succeeded)"
-                "Failed    : $($result.Failed)"
+                "Réussies  : $($result.Succeeded)"
+                "Échouées  : $($result.Failed)"
             )
             if ($result.UsersCreated -gt 0) {
                 $lines += ''
-                $lines += "Credential record: $($result.RecordPath)"
-                $lines += 'That file is cleartext. Hand it over, then delete it.'
-                $lines += 'Never commit it and never leave it in the repository.'
+                $lines += "Fichier de transmission : $($result.RecordPath)"
+                $lines += 'Ce fichier est en clair. Remettez-le à l''utilisateur puis supprimez-le.'
+                $lines += 'Ne le commitez jamais et ne le laissez jamais dans le dépôt.'
             }
             if ($result.Failed -gt 0) {
                 $lines += ''
-                $lines += 'Failures:'
+                $lines += 'Échecs :'
                 foreach ($failure in $result.Failures) {
                     $lines += "  $failure"
                 }
@@ -1065,13 +1324,13 @@ $ui['QueueApplyButton'].Add_Click({
                 $icon = [System.Windows.MessageBoxImage]::Warning
             }
             [void][System.Windows.MessageBox]::Show(
-                ($lines -join [Environment]::NewLine), 'Apply all',
+                ($lines -join [Environment]::NewLine), 'Tout appliquer',
                 [System.Windows.MessageBoxButton]::OK, $icon)
 
             if ($result.Failed -gt 0) {
-                Write-AdtStatus -Text ("Applied {0} action(s); {1} failed." -f $result.Succeeded, $result.Failed) -Kind 'Error'
+                Write-AdtStatus -Text ("{0} action(s) appliquée(s), {1} en échec." -f $result.Succeeded, $result.Failed) -Kind 'Error'
             } else {
-                Write-AdtStatus -Text ("Applied {0} action(s)." -f $result.Succeeded) -Kind 'Success'
+                Write-AdtStatus -Text ("{0} action(s) appliquée(s)." -f $result.Succeeded) -Kind 'Success'
             }
         } catch {
             Write-AdtStatus -Text $_.Exception.Message -Kind 'Error'
@@ -1079,26 +1338,26 @@ $ui['QueueApplyButton'].Add_Click({
         }
     })
 
-# --- Initial population ------------------------------------------------------
-$ui['NavList'].ItemsSource = @('Create OU', 'Add agence', 'Add department', 'Create user', 'Archive user')
+# --- Initialisation ----------------------------------------------------------
+$ui['NavList'].ItemsSource = @('Créer une OU', 'Ajouter une agence', 'Ajouter un département', 'Créer un utilisateur', 'Archiver un utilisateur')
 $ui['NavList'].SelectedIndex = 0
 
 try {
     $domain = Get-AdtDefaultSearchBase
-    $ui['DomainLabel'].Text = "Domain: $domain"
+    $ui['DomainLabel'].Text = "Domaine : $domain"
 } catch {
-    $ui['DomainLabel'].Text = 'Domain: unavailable'
+    $ui['DomainLabel'].Text = 'Domaine : indisponible'
     Write-AdtStatus -Text $_.Exception.Message -Kind 'Error'
-    Show-AdtMessage -Text ("Could not read the Active Directory domain.`n`n{0}" -f $_.Exception.Message) -Kind 'Error'
+    Show-AdtMessage -Text ("Impossible de lire le domaine Active Directory.`n`n{0}" -f $_.Exception.Message) -Kind 'Error'
 }
 
 try {
-    Sync-AdtOuChoices
+    Sync-AdtOuTree
     Sync-AdtQueue
-    Write-AdtStatus -Text 'Ready.'
+    Write-AdtStatus -Text 'Prêt.'
 } catch {
     Write-AdtStatus -Text $_.Exception.Message -Kind 'Error'
 }
 
-# --- Run ---------------------------------------------------------------------
+# --- Exécution ---------------------------------------------------------------
 [void]$window.ShowDialog()

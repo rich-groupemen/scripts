@@ -5,8 +5,11 @@ Interactive, Windows 11-style desktop app that builds an Active Directory
 operator having to memorise AD cmdlets or risk destructive mistakes.
 
 Status: **second iteration.** Logic is unit-tested with mocked AD cmdlets; the
-WPF shell has been exercised against a live lab domain. Working notes and host
-verification live in [`SCRATCH.md`](SCRATCH.md).
+first-iteration WPF shell was exercised against a live lab domain. The
+second-iteration shell (queue panel, cascading pickers, French labels) parses
+clean and passes the full lint and test gate but is still awaiting its first run
+on Windows. Working notes and host verification live in
+[`SCRATCH.md`](SCRATCH.md).
 
 ## Purpose
 
@@ -17,6 +20,10 @@ Give a normal operator an approachable UI to:
 - add **department** OUs (RH, Compta, Dev, …) under each agence,
 - create users inside a department OU with a generated password,
 - archive a user by disabling the account.
+
+The application is aimed at French operators, so **all labels, prompts and
+messages are in French**. Identifiers and code comments stay in English, matching
+the rest of the repository.
 
 Users live in department OUs. Nothing is deleted, and no existing attribute is
 modified beyond enabling/disabling an account.
@@ -44,6 +51,42 @@ DC=ad,DC=dev
 An OU can be created empty and seeded with agences later, or seeded in the same
 action. Agences are free-form names; departments are free-form names. Nothing
 is hard-coded.
+
+## User interface
+
+Five sections, one panel each, plus a persistent queue panel on the right:
+
+| Section | What it queues |
+| --- | --- |
+| `Créer une OU` | one OU, plus one OU per agence and one OU per department |
+| `Ajouter une agence` | one OU per agence under a chosen parent |
+| `Ajouter un département` | one OU per department under a chosen agence |
+| `Créer un utilisateur` | one user in a chosen department |
+| `Archiver un utilisateur` | one account disable |
+
+### Cascading location pickers
+
+Every section that needs a location uses the same three-level cascade —
+**Établissement → Agence → Département** — mirroring the directory model above.
+Each level lists only the children of the level above, so the operator picks a
+path by drilling down rather than reading Distinguished Names.
+
+- Level 1 offers `(racine du domaine)` first, then the top-level OUs. Leaving it
+  there means "create directly under the domain root".
+- The **effective parent is the deepest non-empty selection**, so picking only
+  Établissement places the new object one level below it, while picking all three
+  places it inside the department.
+- The cascade is derived by walking parent DNs, so it works against any domain
+  and needs no configuration.
+- OUs queued but not yet created appear in the pickers marked `(en attente)`,
+  so an operator can create a user inside a department that does not exist yet.
+
+Pickers show short, human-readable names. Where a full path is needed — the
+queue labels and the "Ajouté par cette action" preview — it is rendered as
+`Entreprises / Lyon / RH` rather than `OU=RH,OU=Lyon,OU=Entreprises,DC=ad,DC=dev`.
+
+> The cascade offers three levels. OUs nested deeper than that are not selectable
+> from the UI, which matches the three-level model the tool builds.
 
 ## Constraints
 
@@ -78,19 +121,21 @@ queue; the operator reviews the whole plan and applies it once.
 
 1. **Add actions.** Each section appends one or more planned actions to the
    queue. Nothing has touched AD yet.
-2. **Review the queue.** Every queued action is listed with the exact DN it will
-   produce. Items can be removed before applying.
-3. **Apply All.** The queue executes in order. OUs are always created before
-   any user that depends on them, because a user can only target a parent that
-   is already in the queue.
+2. **Review the queue.** Every queued action is listed with a readable path and,
+   for users, the generated password in clear. Items can be removed before
+   applying.
+3. **Apply All.** One confirmation shows the whole batch, then the queue
+   executes. OUs are always created before any user that depends on them,
+   because a user can only target a parent that is already in the queue.
 4. **Credential record.** On success the tool writes the hand-off record (see
    [Credential record](#credential-record)).
 
 The queue stores the fully-resolved plan at add time, so what the operator
 reviews is exactly what executes — preview and execution cannot diverge.
 
-Pending OUs appear in the parent pickers alongside real ones, marked as pending,
-so an operator can create a user inside an agence that has not been created yet.
+OUs queued but not yet created appear in the cascading pickers alongside real
+ones, marked `(en attente)`, so an operator can create a user inside an agence
+that has not been created yet.
 
 ## Password generation
 
@@ -127,8 +172,8 @@ layer. Delete it once the passwords have been handed over.
 
 - **Nothing is created until Apply All.** Actions are queued, reviewed, then
   executed as one batch.
-- **Full review before apply.** The queue shows the exact DN and password for
-  every pending action.
+- **Full review before apply.** The queue shows the exact path and password for
+  every pending action, and Apply All confirms the whole batch once.
 - **Cleartext only on screen and in the record.** The generated password is
   shown on purpose. It is never logged.
 - **Archive means disable.** The account is not deleted, not moved, and no other
@@ -200,6 +245,9 @@ parameter-compatible stubs for the AD cmdlets, then mocks them with
   beyond name, UPN, password, and enabled state.
 - Users are created with `-ChangePasswordAtLogon $false`; password rotation is
   domain policy and is not configured here.
+- The location pickers expose exactly three levels. OUs nested more deeply than
+  Établissement → Agence → Département are not selectable from the UI, though the
+  module can still address them.
 - The queue is in-memory only. Closing the window discards it.
 
 ## Roadmap
