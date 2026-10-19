@@ -210,3 +210,68 @@ cremone [crémone]  equerre [équerre]  boulon  tasseau        panneau
   — the user-visible dry-run is the product's core safety feature.
 - Architecture: `AdManager.ps1` (WPF shell) + `lib/AdTools/` (pure,
   mock-testable AD logic) + `tests/` (Pester with mocked AD cmdlets).
+
+---
+
+## Iteration 4 — runtime failure root-caused, selectors simplified (2026-10-19)
+
+### Symptom
+Iteration 3 (`be68505`) opened fine but every action failed. Operator saw a
+dialog reading roughly *"incorrect argument"*.
+
+### Root cause — one PowerShell trap, three faces
+`@(<List[object]>)` throws `System.ArgumentException: Argument types do not
+match`. Not content-dependent, not emptiness-dependent: **any** `List[object]`
+passed through `@()` fails. Verified in isolation.
+
+Iteration 3 had `$script:ouNodes = @($nodes)` where `$nodes` was a
+`List[object]`. `Sync-AdtOuTree` threw on every call, so `Add-AdtQueueItem`
+threw, so every Add button failed. The init `try/catch` swallowed it into the
+status bar, which is why the window still opened.
+
+Two related traps found while fixing:
+1. **`@(functionReturningUnaryCommaArray)`** double-wraps: the array subexpression
+   runs the command pipeline and wraps the single resulting object, so an empty
+   result yields **count 1**, not 0. `$x = Func` is correct; `@(Func)` is not.
+2. **`return [string[]]$list.ToArray()`** silently returns `$null` when the array
+   is empty — the output stream drops empty arrays. The unary comma
+   (`return , ([string[]]...)`) is required to return an empty array intact.
+
+Rules adopted, both now commented in the source:
+- Never `@()` a `List[object]`; use `.ToArray()`.
+- Never `@()` a function that returns via the unary comma; assign directly.
+
+### Redesign — per-section selectors
+Replaced the "same three-level cascade everywhere" with selectors that match
+each section, and made the parent explicitly the section's own last selector
+(dropping the "deepest non-empty selection" rule, which could place an object
+somewhere the operator never pointed at):
+
+| Section | Selectors |
+| --- | --- |
+| `Créer un OU` | none — always the domain root |
+| `Créer une agence` | Établissement |
+| `Créer un département` | Établissement → Agence |
+| `Créer un utilisateur` | Établissement → Agence → Département |
+
+Also: empty selectors now show a "create one first" hint instead of a blank
+field; the synthetic `(racine du domaine)` entry is gone; every selector always
+receives a real `object[]`; `SelectedItem` is assigned directly rather than via
+`SelectedIndex` so the selected element is the single source of truth.
+
+### Verification
+Built a headless harness (`/tmp/opencode/regress.ps1`) that AST-extracts the
+functions from `AdManager.ps1`, stubs the WPF controls and the AD cmdlets, and
+drives the real code. 43 checks cover the empty-file / empty-domain edge cases
+and the full queue-an-OU → agence-under-pending-OU → département → user chain,
+plus selection preservation and 4th-level-nesting refusal. All pass.
+
+Gate: `make lint` (10 files clean), `make test` (41 passed), parse errors 0,
+XAML well-formed, 44 named controls all captured, BOM `EF BB BF`.
+
+### Still open
+- Live smoke test on the AD.DEV VM.
+- The DN helpers and the picker-level computation are pure but live in the shell,
+  so Pester cannot reach them. Moving them into `lib/AdTools` would make them
+  ordinarily testable — and is what the architecture note above already calls
+  for. Not done yet; would also let the headless harness be retired.

@@ -56,37 +56,44 @@ is hard-coded.
 
 Five sections, one panel each, plus a persistent queue panel on the right:
 
-| Section | What it queues |
-| --- | --- |
-| `Créer une OU` | one OU, plus one OU per agence and one OU per department |
-| `Ajouter une agence` | one OU per agence under a chosen parent |
-| `Ajouter un département` | one OU per department under a chosen agence |
-| `Créer un utilisateur` | one user in a chosen department |
-| `Archiver un utilisateur` | one account disable |
+| Section | Location selectors | What it queues |
+| --- | --- | --- |
+| `Créer un OU` | none — always the domain root | one OU at the first level |
+| `Créer une agence` | Établissement | one OU per named agence |
+| `Créer un département` | Établissement → Agence | one OU per named department |
+| `Créer un utilisateur` | Établissement → Agence → Département | one user |
+| `Archiver un utilisateur` | the loaded account | one account disable |
 
-### Cascading location pickers
+### Location selectors
 
-Every section that needs a location uses the same three-level cascade —
-**Établissement → Agence → Département** — mirroring the directory model above.
-Each level lists only the children of the level above, so the operator picks a
-path by drilling down rather than reading Distinguished Names.
+Each section offers only the selectors it actually needs, rather than the same
+three-level cascade everywhere:
 
-- Level 1 offers `(racine du domaine)` first, then the top-level OUs. Leaving it
-  there means "create directly under the domain root".
-- The **effective parent is the deepest non-empty selection**, so picking only
-  Établissement places the new object one level below it, while picking all three
-  places it inside the department.
-- The cascade is derived by walking parent DNs, so it works against any domain
-  and needs no configuration.
-- OUs queued but not yet created appear in the pickers marked `(en attente)`,
-  so an operator can create a user inside a department that does not exist yet.
+- `Créer un OU` has **no selector**: the name is the only input and the OU is
+  created directly under the domain root. That is how a new site starts.
+- `Créer une agence` picks Établissement only; departments belong to the next
+  section.
+- `Créer un département` picks Établissement then Agence.
+- `Créer un utilisateur` picks all three, in that order.
 
-Pickers show short, human-readable names. Where a full path is needed — the
+**The effective parent is always the section's own last selector** — never "the
+deepest non-empty one". A section cannot place an object somewhere the operator
+did not explicitly point at.
+
+Selectors are derived by walking parent DNs, so they work against any domain and
+need no configuration. Each level lists only the children of the level above.
+OUs queued but not yet created appear alongside real ones marked
+`(en attente)`, so an operator can queue an OU, an agence under it, a
+department under that, and a user inside it — all before the first write to the
+directory.
+
+A selector that comes back empty says what is missing instead of presenting a
+blank field: `« Aucun établissement disponible. Créez-en d'abord un dans
+« Créer un OU ». »`
+
+Selectors show short, human-readable names. Where a full path is needed — the
 queue labels and the "Ajouté par cette action" preview — it is rendered as
 `Entreprises / Lyon / RH` rather than `OU=RH,OU=Lyon,OU=Entreprises,DC=ad,DC=dev`.
-
-> The cascade offers three levels. OUs nested deeper than that are not selectable
-> from the UI, which matches the three-level model the tool builds.
 
 ## Constraints
 
@@ -133,7 +140,7 @@ queue; the operator reviews the whole plan and applies it once.
 The queue stores the fully-resolved plan at add time, so what the operator
 reviews is exactly what executes — preview and execution cannot diverge.
 
-OUs queued but not yet created appear in the cascading pickers alongside real
+OUs queued but not yet created appear in the location selectors alongside real
 ones, marked `(en attente)`, so an operator can create a user inside an agence
 that has not been created yet.
 
@@ -245,9 +252,10 @@ parameter-compatible stubs for the AD cmdlets, then mocks them with
   beyond name, UPN, password, and enabled state.
 - Users are created with `-ChangePasswordAtLogon $false`; password rotation is
   domain policy and is not configured here.
-- The location pickers expose exactly three levels. OUs nested more deeply than
-  Établissement → Agence → Département are not selectable from the UI, though the
-  module can still address them.
+- The location selectors expose exactly three levels, and `Créer un OU` creates
+  only at the first level. OUs nested deeper than
+  Établissement → Agence → Département cannot be created through the UI, though
+  the module can still address them.
 - The queue is in-memory only. Closing the window discards it.
 
 ## Roadmap
