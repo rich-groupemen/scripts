@@ -269,9 +269,77 @@ plus selection preservation and 4th-level-nesting refusal. All pass.
 Gate: `make lint` (10 files clean), `make test` (41 passed), parse errors 0,
 XAML well-formed, 44 named controls all captured, BOM `EF BB BF`.
 
+### Near-miss: WPF binding to `[pscustomobject]` DOES work (do not re-litigate)
+While auditing the shell I suspected that `DisplayMemberPath="Name"` on
+`[pscustomobject]` items renders blank, because WPF resolves the path through
+`TypeDescriptor` and `PSObject` does **not** implement `ICustomTypeDescriptor`
+(`[System.Management.Automation.PSObject].GetInterfaces()` returns only
+`IFormattable`, `IComparable`, `ISerializable`, `IDynamicMetaObjectProvider`).
+That suspicion was **wrong**, and acting on it would have meant rewriting every
+ComboBox to `ComboBoxItem` + `Tag` for nothing.
+
+Measured, through the exact code path the shell uses (`List[object].Add` →
+`.ToArray()`), inspecting the stored element the way WPF's own enumerator would:
+
+```
+element type = System.Management.Automation.PSObject | TypeDescriptor count = 2 \
+  | names = Name,DistinguishedName | c["Name"] = Lyon
+```
+
+PowerShell registers a type-description provider at startup, so `TypeDescriptor`
+*does* expose the adapted `PSObject` members. Binding works. `GetInterfaces()`
+alone is a red herring — it describes the CLR type, not the provider.
+
+Lesson: for WPF/PowerShell interop questions, assert nothing from type
+introspection alone. Drive `TypeDescriptor` (or the real control) and look at the
+result. The stub harness cannot answer rendering questions, so any WPF-rendering
+assumption must be settled on the VM.
+
+Repro: `/tmp/opencode/decide.ps1` (Add-Type probe calling `TypeDescriptor` on the
+raw array element).
+
 ### Still open
-- Live smoke test on the AD.DEV VM.
+- Live smoke test on the AD.DEV VM — see the run order under "Smoke test order".
 - The DN helpers and the picker-level computation are pure but live in the shell,
   so Pester cannot reach them. Moving them into `lib/AdTools` would make them
   ordinarily testable — and is what the architecture note above already calls
   for. Not done yet; would also let the headless harness be retired.
+- `Sync-AdtOuTree` walks a `Hashtable`, so selector order is insertion order, not
+  alphabetical. Cosmetic; a `Sort-Object Name` would help a non-AD operator.
+- `QueueList` has no `SelectionMode`, so the multi-item loop in the Supprimer
+  handler only ever sees one entry. Matches iteration 3; not a regression.
+
+### Smoke test order (VM)
+```powershell
+Set-ExecutionPolicy -Scope Process -ExecutionPolicy Bypass -Force
+powershell.exe -NoProfile -STA -ExecutionPolicy Bypass -File .\AdManager.ps1
+```
+1. Dropdowns populate with readable names (not blank, not type names).
+2. `Créer un OU` → `Entreprises`. 3. `Créer une agence` under `Entreprises`.
+4. `Créer un département` shows the pending agence as `Lyon (en attente)`.
+5. `Créer un utilisateur` offers all three levels. 6. One `Appliquer`.
+
+## Session close — 2026-10-19
+
+### State on disk
+Both prepared commits landed (the operator ran them; git is user-only here):
+
+- `f992518` `fix(ad-tools): repair the sync crash and use per-section location
+  selectors` — `AdManager.ps1`.
+- `45f2407` `docs(ad-tools): document the per-section selectors and the @() trap`
+  — `README.md` + `SCRATCH.md`.
+
+`HEAD` = `45f2407`, on top of the broken iteration 3 (`be68505`). The only
+uncommitted change is this closing note appended to `SCRATCH.md`.
+
+Gate was green on the tree that produced those commits: `make lint` (10 clean),
+`make test` (41 passed), harness 43/43, parse 0, XAML well-formed, BOM
+`EF BB BF`. Nothing was verified in a live WPF window — see the near-miss note
+above and the smoke test that is still owed.
+
+### Next session, first move
+Ask the user for the VM result. If the UI binds and the queue applies, the
+crash is closed. Then decide the architecture item: move the pure DN/picker
+helpers into `lib/AdTools` so Pester can test them and the `/tmp` harness can be
+retired — or promote the harness into `tests/` first. Scratch log stays open
+until that is decided; redact it once the project is no longer moving.
