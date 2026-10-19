@@ -1,25 +1,49 @@
-# AD Tools — interactive OU / user / group manager
+# AD Tools — interactive OU and user manager
 
-Interactive, Windows 11-style desktop app that creates and archives Active
-Directory **OUs, users, and groups** on an on-prem domain, without the operator
-having to memorise AD cmdlets or risk destructive mistakes.
+Interactive, Windows 11-style desktop app that builds an Active Directory
+**OU hierarchy** and creates **users** on an on-prem domain, without the
+operator having to memorise AD cmdlets or risk destructive mistakes.
 
-Status: **first iteration.** Logic is unit-tested with mocked AD cmdlets; the
-WPF shell has not yet run against a live domain (see [Prerequisites](#prerequisites)).
-Working notes and host verification live in [`SCRATCH.md`](SCRATCH.md).
+Status: **second iteration.** Logic is unit-tested with mocked AD cmdlets; the
+WPF shell has been exercised against a live lab domain. Working notes and host
+verification live in [`SCRATCH.md`](SCRATCH.md).
 
 ## Purpose
 
 Give a normal operator an approachable UI to:
 
-- create organizational units,
-- create users (one at a time) with a generated password,
-- create groups,
-- change a user's group membership,
+- create a top-level OU, optionally seeding it with one **agence** per branch,
+- add further agences under an existing OU at any time,
+- add **department** OUs (RH, Compta, Dev, …) under each agence,
+- create users inside a department OU with a generated password,
 - archive a user by disabling the account.
 
-Nothing is deleted, and no existing attribute is modified beyond group
-membership.
+Users live in department OUs. Nothing is deleted, and no existing attribute is
+modified beyond enabling/disabling an account.
+
+**Groups are deferred.** Group creation and group-membership editing are out of
+scope for this iteration — see [Roadmap](#roadmap). The module still exposes the
+group functions (they are tested and will return) but the UI does not use them.
+
+## Directory model
+
+"Folder" means an **Organizational Unit**, never a file-system directory.
+
+```
+DC=ad,DC=dev
+└── OU=Entreprises              ← Create OU
+    ├── OU=Lyon                 ← agence
+    │   ├── OU=RH               ← department: users live here
+    │   ├── OU=Compta
+    │   └── OU=Dev
+    └── OU=Marseille            ← added later via Add Agence
+        ├── OU=RH
+        └── OU=Compta
+```
+
+An OU can be created empty and seeded with agences later, or seeded in the same
+action. Agences are free-form names; departments are free-form names. Nothing
+is hard-coded.
 
 ## Constraints
 
@@ -29,7 +53,8 @@ membership.
   shipped DLLs. `.NET Framework 4.8` only.
 - **STA apartment** required (the script relaunches itself in STA if needed).
 - **On-prem Active Directory only.** The tool never writes to LDAP or GLPI.
-- **One entry at a time.** No CSV bulk import.
+- **One entry at a time in the UI.** No CSV bulk import. Entries accumulate in
+  a queue and are applied together.
 - **Windows-only execution.** The logic is developed and tested on Linux; the
   UI runs on Windows.
 
@@ -43,23 +68,29 @@ Add-WindowsCapability -Online -Name Rsat.ActiveDirectory.DS-LDS.Tools~~~~0.0.1.0
 ```
 
 The operator runs the tool with their own credentials and whatever delegated
-rights they hold; the tool does not centralise credentials.
+rights they hold; the tool does not centralise credentials. The process identity
+must be a **domain** identity — a local account cannot bind to the directory.
 
-## How it works
+## How it works: queue, review, apply
 
-The UI collects input, computes a **preview** of the planned change, and only
-executes after the operator confirms. The preview and the executed action reuse
-the same stored plan, so they can never diverge.
+The tool does **not** confirm each action individually. Actions accumulate in a
+queue; the operator reviews the whole plan and applies it once.
 
-| Section | Action |
-|---|---|
-| Create OU | Adds one OU under a chosen parent container. |
-| Create user | Creates one user: `name.surname`, generated password, chosen OU, selected groups. |
-| Create group | Creates one group (Global/Security by default); no permissions are configured. |
-| Modify user | Stages group-membership additions/removals, then applies them. |
-| Archive user | Disables the account in place. |
+1. **Add actions.** Each section appends one or more planned actions to the
+   queue. Nothing has touched AD yet.
+2. **Review the queue.** Every queued action is listed with the exact DN it will
+   produce. Items can be removed before applying.
+3. **Apply All.** The queue executes in order. OUs are always created before
+   any user that depends on them, because a user can only target a parent that
+   is already in the queue.
+4. **Credential record.** On success the tool writes the hand-off record (see
+   [Credential record](#credential-record)).
 
-All write operations go through `lib/AdTools` and support `-WhatIf`.
+The queue stores the fully-resolved plan at add time, so what the operator
+reviews is exactly what executes — preview and execution cannot diverge.
+
+Pending OUs appear in the parent pickers alongside real ones, marked as pending,
+so an operator can create a user inside an agence that has not been created yet.
 
 ## Password generation
 
@@ -78,21 +109,33 @@ sets `-ChangePasswordAtLogon $false`.
 The word list is `data/french-words-60.txt` (60 words, 4–7 letters, ASCII);
 the module falls back to an embedded copy if the file is missing.
 
+## Credential record
+
+After a successful apply that created users, the tool writes
+`ad-tools-created-users-YYYYMMDD-HHMM.txt` to the operator's **Documents**
+folder (`[Environment]::GetFolderPath('MyDocuments')`).
+
+It contains `username <name.surname>` and `password <cleartext>` lines — a
+one-time hand-off record for the operator. The generated password is shown on
+screen and written here **on purpose**; it is never logged.
+
+The record must never be committed and never left in the repository. It is
+written outside the repo, and `.gitignore` also excludes the pattern as a second
+layer. Delete it once the passwords have been handed over.
+
 ## Safety model
 
-- **Preview first.** Every operation shows what will happen before it does.
-- **Explicit confirmation.** A Yes/No dialog gates every state change.
-- **Cleartext only on screen and in the temporary record.** The generated
-  password is shown in the preview on purpose. It is never logged.
-- **Temporary credential record.** On a successful user creation the tool
-  writes `ad-tools-created-users-YYYYMMDD-HHMM.txt` containing
-  `username <name.surname>` and `password <cleartext>` lines — a one-time
-  hand-off record for the operator. It must never be committed and never left
-  in the repository. It is written outside the repo (the `.gitignore` also
-  excludes the pattern).
-- **Archive means disable.** The account is not deleted, not moved, and its
-  group membership is unchanged. It is reversible by re-enabling.
-- **Modify means group membership only.** No other attribute is touched.
+- **Nothing is created until Apply All.** Actions are queued, reviewed, then
+  executed as one batch.
+- **Full review before apply.** The queue shows the exact DN and password for
+  every pending action.
+- **Cleartext only on screen and in the record.** The generated password is
+  shown on purpose. It is never logged.
+- **Archive means disable.** The account is not deleted, not moved, and no other
+  attribute is touched. It is reversible by re-enabling.
+- **Partial failure is reported, not hidden.** If one action in the batch fails,
+  the rest still run and the failures are listed. Successful user creations are
+  still recorded.
 
 ## Layout
 
@@ -115,9 +158,11 @@ projects/ad-tools/
 
 `Remove-AdtDiacritics`, `Get-AdtWordList`, `New-AdtPassword`,
 `Get-AdtSamAccountName`, `ConvertTo-AdtSecureString`, `Get-AdtDefaultSearchBase`,
-`Get-AdtOU`, `New-AdtOU`, `Get-AdtGroup`, `New-AdtGroup`, `Get-AdtUser`,
-`New-AdtUser`, `Disable-AdtUser`, `Add-AdtGroupMember`, `Remove-AdtGroupMember`,
+`Get-AdtOU`, `New-AdtOU`, `Get-AdtUser`, `New-AdtUser`, `Disable-AdtUser`,
 `Save-AdtCredentialRecord`.
+
+Deferred (unused by the UI this iteration, retained and tested):
+`Get-AdtGroup`, `New-AdtGroup`, `Add-AdtGroupMember`, `Remove-AdtGroupMember`.
 
 The module does **not** import `ActiveDirectory` at load time, so it loads and
 tests on Linux. The shell imports `ActiveDirectory` and derives the domain at
@@ -125,14 +170,14 @@ runtime via `Get-ADDomain` — no domain, DN, or UPN is hard-coded.
 
 ## Running
 
-On a Windows client with RSAT installed:
+On a Windows client with RSAT installed, as a domain user:
 
 ```powershell
 powershell.exe -NoProfile -STA -ExecutionPolicy Bypass -File .\AdManager.ps1
 ```
 
-Optional: `-RecordDirectory <path>` to choose where the temporary credential
-record is written (defaults to the user temporary folder).
+Optional: `-RecordDirectory <path>` to override where the credential record is
+written (defaults to the operator's Documents folder).
 
 ## Testing and linting
 
@@ -151,11 +196,17 @@ parameter-compatible stubs for the AD cmdlets, then mocks them with
 
 ## Known limitations
 
-- The UI has not yet been exercised against a live domain (the client's RSAT
-  module is not installed — see `SCRATCH.md`).
-- Group pickers are scoped to the selected OU; groups in other OUs are not
-  listed.
-- New groups default to Global/Security; no permissions are configured.
+- The tool does not configure home directories, profile paths, or any attribute
+  beyond name, UPN, password, and enabled state.
+- Users are created with `-ChangePasswordAtLogon $false`; password rotation is
+  domain policy and is not configured here.
+- The queue is in-memory only. Closing the window discards it.
+
+## Roadmap
+
+- **Groups** — creation and membership editing. The module functions already
+  exist and are tested; the UI needs reintroducing when this returns.
+- Optional: per-agence department templates.
 
 ## Ground rules
 

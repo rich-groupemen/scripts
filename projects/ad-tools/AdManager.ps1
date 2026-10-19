@@ -1,25 +1,26 @@
 #Requires -Version 5.1
 <#
 .SYNOPSIS
-    Interactive manager for Active Directory OUs, users, and groups.
+    Interactive manager for Active Directory OUs and users.
 .DESCRIPTION
     Windows 11-style, dependency-free WPF front end for the AD Tools project.
-    All AD logic lives in lib/AdTools/AdTools.psm1; this file is only the shell:
-    it collects input, shows a faithful preview (including the cleartext
-    password), asks for explicit confirmation, then calls the module.
+    All AD logic lives in lib/AdTools/AdTools.psm1; this file is only the shell.
+
+    Actions accumulate in a queue. Nothing touches AD until the operator
+    reviews the whole plan and presses Apply All. The queue stores the
+    fully-resolved plan at add time, so what is reviewed is what executes.
 
     Design rules:
       - Windows PowerShell 5.1 only (scoped exception to the repo's PS7 rule).
       - STA apartment, PresentationFramework/PresentationCore/WindowsBase only.
         No third-party theme libraries; Fluent styling is hand-rolled XAML.
-      - One entry at a time. No CSV bulk import.
-      - Nothing changes until the operator previews and confirms.
-      - Archive means Disable only. Modify means group membership only.
+      - One entry at a time in the UI. No CSV bulk import.
+      - Archive means Disable only. Groups are deferred this iteration.
       - The cleartext password is shown on screen on purpose and written only
         to the temporary credential record. It is never logged.
 .NOTES
     Run with Windows PowerShell 5.1 on a host with the ActiveDirectory (RSAT)
-    module. Lab only; never point at production.
+    module, as a domain user. Lab only; never point at production.
 #>
 [CmdletBinding()]
 param(
@@ -70,8 +71,8 @@ $xaml = @'
     xmlns="http://schemas.microsoft.com/winfx/2006/xaml/presentation"
     xmlns:x="http://schemas.microsoft.com/winfx/2006/xaml"
     Title="AD Tools"
-    Height="740" Width="1100"
-    MinHeight="620" MinWidth="940"
+    Height="800" Width="1280"
+    MinHeight="660" MinWidth="1120"
     WindowStartupLocation="CenterScreen"
     Background="#F3F3F3"
     FontFamily="Segoe UI">
@@ -201,8 +202,9 @@ $xaml = @'
 
         <Grid Grid.Row="1">
             <Grid.ColumnDefinitions>
-                <ColumnDefinition Width="220" />
+                <ColumnDefinition Width="200" />
                 <ColumnDefinition Width="*" />
+                <ColumnDefinition Width="380" />
             </Grid.ColumnDefinitions>
 
             <Border Grid.Column="0" Background="{StaticResource CardBrush}" BorderBrush="{StaticResource CardBorderBrush}" BorderThickness="0,0,1,0">
@@ -213,23 +215,76 @@ $xaml = @'
                 <ScrollViewer x:Name="PanelOu" VerticalScrollBarVisibility="Auto">
                     <StackPanel Margin="24">
                         <TextBlock Style="{StaticResource SectionTitle}" Text="Create organizational unit" />
-                        <TextBlock Text="Adds a new OU under an existing container. Nothing changes until you confirm." Foreground="{StaticResource MutedBrush}" Margin="0,0,0,12" TextWrapping="Wrap" />
+                        <TextBlock Text="Creates a top-level OU and optionally seeds it with one agence per branch. Add departments to every new agence in the same action. Nothing is created until you press Apply All." Foreground="{StaticResource MutedBrush}" Margin="0,0,0,12" TextWrapping="Wrap" />
                         <Border Style="{StaticResource Card}">
                             <StackPanel>
                                 <TextBlock Style="{StaticResource FieldLabel}" Text="Parent container" />
-                                <ComboBox x:Name="OuParentCombo" />
+                                <ComboBox x:Name="OuParentCombo" DisplayMemberPath="DisplayName" />
                                 <TextBlock Style="{StaticResource FieldLabel}" Text="New OU name" />
                                 <TextBox x:Name="OuNameBox" />
+                                <TextBlock Style="{StaticResource FieldLabel}" Text="Agence names (one per line, optional)" />
+                                <TextBox x:Name="OuAgencesBox" AcceptsReturn="True" TextWrapping="Wrap" Height="72" VerticalScrollBarVisibility="Auto" />
+                                <TextBlock Style="{StaticResource FieldLabel}" Text="Department names for each agence (one per line, optional)" />
+                                <TextBox x:Name="OuDepartmentsBox" AcceptsReturn="True" TextWrapping="Wrap" Height="72" VerticalScrollBarVisibility="Auto" />
                                 <StackPanel Orientation="Horizontal" Margin="0,18,0,0">
-                                    <Button x:Name="OuPreviewButton" Style="{StaticResource SecondaryButton}" Content="Preview" />
-                                    <Button x:Name="OuCreateButton" Style="{StaticResource PrimaryButton}" Content="Create OU" IsEnabled="False" />
+                                    <Button x:Name="OuAddButton" Style="{StaticResource PrimaryButton}" Content="Add to queue" />
                                 </StackPanel>
                             </StackPanel>
                         </Border>
                         <Border Style="{StaticResource Card}">
                             <StackPanel>
-                                <TextBlock Text="Preview" FontWeight="SemiBold" Margin="0,0,0,8" />
-                                <TextBox x:Name="OuPreviewText" IsReadOnly="True" TextWrapping="Wrap" AcceptsReturn="True" MinHeight="90" Background="{StaticResource FieldBrush}" BorderThickness="0" />
+                                <TextBlock Text="Queued by this action" FontWeight="SemiBold" Margin="0,0,0,8" />
+                                <TextBox x:Name="OuPreviewText" IsReadOnly="True" TextWrapping="Wrap" AcceptsReturn="True" MinHeight="90" Background="{StaticResource FieldBrush}" BorderThickness="0" FontFamily="Consolas" />
+                            </StackPanel>
+                        </Border>
+                    </StackPanel>
+                </ScrollViewer>
+
+                <ScrollViewer x:Name="PanelAgence" VerticalScrollBarVisibility="Auto" Visibility="Collapsed">
+                    <StackPanel Margin="24">
+                        <TextBlock Style="{StaticResource SectionTitle}" Text="Add agence" />
+                        <TextBlock Text="Adds one OU per agence under an existing or queued container. Nothing is created until you press Apply All." Foreground="{StaticResource MutedBrush}" Margin="0,0,0,12" TextWrapping="Wrap" />
+                        <Border Style="{StaticResource Card}">
+                            <StackPanel>
+                                <TextBlock Style="{StaticResource FieldLabel}" Text="Parent container" />
+                                <ComboBox x:Name="AgParentCombo" DisplayMemberPath="DisplayName" />
+                                <TextBlock Style="{StaticResource FieldLabel}" Text="Agence names (one per line)" />
+                                <TextBox x:Name="AgNamesBox" AcceptsReturn="True" TextWrapping="Wrap" Height="88" VerticalScrollBarVisibility="Auto" />
+                                <TextBlock Style="{StaticResource FieldLabel}" Text="Department names for each agence (one per line, optional)" />
+                                <TextBox x:Name="AgDepartmentsBox" AcceptsReturn="True" TextWrapping="Wrap" Height="72" VerticalScrollBarVisibility="Auto" />
+                                <StackPanel Orientation="Horizontal" Margin="0,18,0,0">
+                                    <Button x:Name="AgAddButton" Style="{StaticResource PrimaryButton}" Content="Add to queue" />
+                                </StackPanel>
+                            </StackPanel>
+                        </Border>
+                        <Border Style="{StaticResource Card}">
+                            <StackPanel>
+                                <TextBlock Text="Queued by this action" FontWeight="SemiBold" Margin="0,0,0,8" />
+                                <TextBox x:Name="AgPreviewText" IsReadOnly="True" TextWrapping="Wrap" AcceptsReturn="True" MinHeight="90" Background="{StaticResource FieldBrush}" BorderThickness="0" FontFamily="Consolas" />
+                            </StackPanel>
+                        </Border>
+                    </StackPanel>
+                </ScrollViewer>
+
+                <ScrollViewer x:Name="PanelDepartment" VerticalScrollBarVisibility="Auto" Visibility="Collapsed">
+                    <StackPanel Margin="24">
+                        <TextBlock Style="{StaticResource SectionTitle}" Text="Add department" />
+                        <TextBlock Text="Adds one OU per department under an agence. Users live in department OUs. Nothing is created until you press Apply All." Foreground="{StaticResource MutedBrush}" Margin="0,0,0,12" TextWrapping="Wrap" />
+                        <Border Style="{StaticResource Card}">
+                            <StackPanel>
+                                <TextBlock Style="{StaticResource FieldLabel}" Text="Parent agence" />
+                                <ComboBox x:Name="DepParentCombo" DisplayMemberPath="DisplayName" />
+                                <TextBlock Style="{StaticResource FieldLabel}" Text="Department names (one per line)" />
+                                <TextBox x:Name="DepNamesBox" AcceptsReturn="True" TextWrapping="Wrap" Height="88" VerticalScrollBarVisibility="Auto" />
+                                <StackPanel Orientation="Horizontal" Margin="0,18,0,0">
+                                    <Button x:Name="DepAddButton" Style="{StaticResource PrimaryButton}" Content="Add to queue" />
+                                </StackPanel>
+                            </StackPanel>
+                        </Border>
+                        <Border Style="{StaticResource Card}">
+                            <StackPanel>
+                                <TextBlock Text="Queued by this action" FontWeight="SemiBold" Margin="0,0,0,8" />
+                                <TextBox x:Name="DepPreviewText" IsReadOnly="True" TextWrapping="Wrap" AcceptsReturn="True" MinHeight="90" Background="{StaticResource FieldBrush}" BorderThickness="0" FontFamily="Consolas" />
                             </StackPanel>
                         </Border>
                     </StackPanel>
@@ -238,7 +293,7 @@ $xaml = @'
                 <ScrollViewer x:Name="PanelUser" VerticalScrollBarVisibility="Auto" Visibility="Collapsed">
                     <StackPanel Margin="24">
                         <TextBlock Style="{StaticResource SectionTitle}" Text="Create user" />
-                        <TextBlock Text="Creates one user and writes a temporary cleartext credential record on success." Foreground="{StaticResource MutedBrush}" Margin="0,0,0,12" TextWrapping="Wrap" />
+                        <TextBlock Text="Queues one user in a department OU. The password is written to the credential record on success. Nothing is created until you press Apply All." Foreground="{StaticResource MutedBrush}" Margin="0,0,0,12" TextWrapping="Wrap" />
                         <Border Style="{StaticResource Card}">
                             <StackPanel>
                                 <Grid>
@@ -258,17 +313,8 @@ $xaml = @'
                                 </Grid>
                                 <TextBlock Style="{StaticResource FieldLabel}" Text="User name (derived)" />
                                 <TextBox x:Name="UserSamBox" IsReadOnly="True" Background="{StaticResource FieldBrush}" />
-                                <TextBlock Style="{StaticResource FieldLabel}" Text="Organizational unit" />
-                                <ComboBox x:Name="UserOuCombo" />
-                                <Grid Margin="0,10,0,0">
-                                    <Grid.ColumnDefinitions>
-                                        <ColumnDefinition Width="*" />
-                                        <ColumnDefinition Width="Auto" />
-                                    </Grid.ColumnDefinitions>
-                                    <TextBlock Grid.Column="0" Style="{StaticResource FieldLabel}" Text="Groups (multi-select)" Margin="0,0,8,0" VerticalAlignment="Bottom" />
-                                    <Button Grid.Column="1" x:Name="UserRefreshGroupsButton" Style="{StaticResource SecondaryButton}" Content="Refresh groups" Margin="0" Padding="12,6" />
-                                </Grid>
-                                <ListBox x:Name="UserGroupList" Height="140" SelectionMode="Multiple" DisplayMemberPath="Name" />
+                                <TextBlock Style="{StaticResource FieldLabel}" Text="Department OU" />
+                                <ComboBox x:Name="UserOuCombo" DisplayMemberPath="DisplayName" />
                                 <Grid Margin="0,14,0,0">
                                     <Grid.ColumnDefinitions>
                                         <ColumnDefinition Width="*" />
@@ -284,98 +330,14 @@ $xaml = @'
                                     </StackPanel>
                                 </Grid>
                                 <StackPanel Orientation="Horizontal" Margin="0,18,0,0">
-                                    <Button x:Name="UserPreviewButton" Style="{StaticResource SecondaryButton}" Content="Preview" />
-                                    <Button x:Name="UserCreateButton" Style="{StaticResource PrimaryButton}" Content="Create user" IsEnabled="False" />
+                                    <Button x:Name="UserAddButton" Style="{StaticResource PrimaryButton}" Content="Add to queue" />
                                 </StackPanel>
                             </StackPanel>
                         </Border>
                         <Border Style="{StaticResource Card}">
                             <StackPanel>
-                                <TextBlock Text="Preview" FontWeight="SemiBold" Margin="0,0,0,8" />
-                                <TextBox x:Name="UserPreviewText" IsReadOnly="True" TextWrapping="Wrap" AcceptsReturn="True" MinHeight="130" Background="{StaticResource FieldBrush}" BorderThickness="0" />
-                            </StackPanel>
-                        </Border>
-                    </StackPanel>
-                </ScrollViewer>
-
-                <ScrollViewer x:Name="PanelGroup" VerticalScrollBarVisibility="Auto" Visibility="Collapsed">
-                    <StackPanel Margin="24">
-                        <TextBlock Style="{StaticResource SectionTitle}" Text="Create group" />
-                        <TextBlock Text="Creates a group with no permissions configured." Foreground="{StaticResource MutedBrush}" Margin="0,0,0,12" TextWrapping="Wrap" />
-                        <Border Style="{StaticResource Card}">
-                            <StackPanel>
-                                <TextBlock Style="{StaticResource FieldLabel}" Text="Organizational unit" />
-                                <ComboBox x:Name="GroupOuCombo" />
-                                <TextBlock Style="{StaticResource FieldLabel}" Text="Group name" />
-                                <TextBox x:Name="GroupNameBox" />
-                                <Grid>
-                                    <Grid.ColumnDefinitions>
-                                        <ColumnDefinition Width="*" />
-                                        <ColumnDefinition Width="16" />
-                                        <ColumnDefinition Width="*" />
-                                    </Grid.ColumnDefinitions>
-                                    <StackPanel Grid.Column="0">
-                                        <TextBlock Style="{StaticResource FieldLabel}" Text="Scope" />
-                                        <ComboBox x:Name="GroupScopeCombo" />
-                                    </StackPanel>
-                                    <StackPanel Grid.Column="2">
-                                        <TextBlock Style="{StaticResource FieldLabel}" Text="Category" />
-                                        <ComboBox x:Name="GroupCategoryCombo" />
-                                    </StackPanel>
-                                </Grid>
-                                <StackPanel Orientation="Horizontal" Margin="0,18,0,0">
-                                    <Button x:Name="GroupPreviewButton" Style="{StaticResource SecondaryButton}" Content="Preview" />
-                                    <Button x:Name="GroupCreateButton" Style="{StaticResource PrimaryButton}" Content="Create group" IsEnabled="False" />
-                                </StackPanel>
-                            </StackPanel>
-                        </Border>
-                        <Border Style="{StaticResource Card}">
-                            <StackPanel>
-                                <TextBlock Text="Preview" FontWeight="SemiBold" Margin="0,0,0,8" />
-                                <TextBox x:Name="GroupPreviewText" IsReadOnly="True" TextWrapping="Wrap" AcceptsReturn="True" MinHeight="90" Background="{StaticResource FieldBrush}" BorderThickness="0" />
-                            </StackPanel>
-                        </Border>
-                    </StackPanel>
-                </ScrollViewer>
-
-                <ScrollViewer x:Name="PanelModify" VerticalScrollBarVisibility="Auto" Visibility="Collapsed">
-                    <StackPanel Margin="24">
-                        <TextBlock Style="{StaticResource SectionTitle}" Text="Modify user" />
-                        <TextBlock Text="Changes group membership only. No other attributes are touched." Foreground="{StaticResource MutedBrush}" Margin="0,0,0,12" TextWrapping="Wrap" />
-                        <Border Style="{StaticResource Card}">
-                            <StackPanel>
-                                <TextBlock Style="{StaticResource FieldLabel}" Text="User (SamAccountName)" />
-                                <Grid>
-                                    <Grid.ColumnDefinitions>
-                                        <ColumnDefinition Width="*" />
-                                        <ColumnDefinition Width="8" />
-                                        <ColumnDefinition Width="Auto" />
-                                    </Grid.ColumnDefinitions>
-                                    <TextBox Grid.Column="0" x:Name="ModifyUserBox" />
-                                    <Button Grid.Column="2" x:Name="ModifyLoadButton" Style="{StaticResource SecondaryButton}" Content="Load" Margin="0" />
-                                </Grid>
-                                <TextBlock Style="{StaticResource FieldLabel}" Text="Current groups" />
-                                <ListBox x:Name="ModifyCurrentList" Height="90" DisplayMemberPath="Name" />
-                                <Grid Margin="0,10,0,0">
-                                    <Grid.ColumnDefinitions>
-                                        <ColumnDefinition Width="*" />
-                                        <ColumnDefinition Width="Auto" />
-                                    </Grid.ColumnDefinitions>
-                                    <TextBlock Grid.Column="0" Style="{StaticResource FieldLabel}" Text="Groups in the user's OU" VerticalAlignment="Bottom" Margin="0,0,8,0" />
-                                    <Button Grid.Column="1" x:Name="ModifyRefreshButton" Style="{StaticResource SecondaryButton}" Content="Refresh" Margin="0" Padding="12,6" />
-                                </Grid>
-                                <ListBox x:Name="ModifyAvailableList" Height="120" SelectionMode="Multiple" DisplayMemberPath="Name" />
-                                <StackPanel Orientation="Horizontal" Margin="0,14,0,0">
-                                    <Button x:Name="ModifyAddButton" Style="{StaticResource SecondaryButton}" Content="Add selected" />
-                                    <Button x:Name="ModifyRemoveButton" Style="{StaticResource SecondaryButton}" Content="Remove selected" />
-                                </StackPanel>
-                            </StackPanel>
-                        </Border>
-                        <Border Style="{StaticResource Card}">
-                            <StackPanel>
-                                <TextBlock Text="Pending changes" FontWeight="SemiBold" Margin="0,0,0,8" />
-                                <TextBox x:Name="ModifyPendingText" IsReadOnly="True" TextWrapping="Wrap" AcceptsReturn="True" MinHeight="70" Background="{StaticResource FieldBrush}" BorderThickness="0" />
-                                <Button x:Name="ModifyApplyButton" Style="{StaticResource PrimaryButton}" Content="Apply changes" Margin="0,14,0,0" HorizontalAlignment="Left" IsEnabled="False" />
+                                <TextBlock Text="Queued by this action" FontWeight="SemiBold" Margin="0,0,0,8" />
+                                <TextBox x:Name="UserPreviewText" IsReadOnly="True" TextWrapping="Wrap" AcceptsReturn="True" MinHeight="110" Background="{StaticResource FieldBrush}" BorderThickness="0" FontFamily="Consolas" />
                             </StackPanel>
                         </Border>
                     </StackPanel>
@@ -384,7 +346,7 @@ $xaml = @'
                 <ScrollViewer x:Name="PanelArchive" VerticalScrollBarVisibility="Auto" Visibility="Collapsed">
                     <StackPanel Margin="24">
                         <TextBlock Style="{StaticResource SectionTitle}" Text="Archive user" />
-                        <TextBlock Text="Disables the account. The user is not deleted and not moved." Foreground="{StaticResource MutedBrush}" Margin="0,0,0,12" TextWrapping="Wrap" />
+                        <TextBlock Text="Queues an account disable. The user is not deleted and not moved. Nothing happens until you press Apply All." Foreground="{StaticResource MutedBrush}" Margin="0,0,0,12" TextWrapping="Wrap" />
                         <Border Style="{StaticResource Card}">
                             <StackPanel>
                                 <TextBlock Style="{StaticResource FieldLabel}" Text="User (SamAccountName)" />
@@ -400,20 +362,44 @@ $xaml = @'
                                 <TextBlock Style="{StaticResource FieldLabel}" Text="Account" />
                                 <TextBox x:Name="ArchiveInfoText" IsReadOnly="True" TextWrapping="Wrap" AcceptsReturn="True" Background="{StaticResource FieldBrush}" BorderThickness="0" MinHeight="70" />
                                 <StackPanel Orientation="Horizontal" Margin="0,18,0,0">
-                                    <Button x:Name="ArchivePreviewButton" Style="{StaticResource SecondaryButton}" Content="Preview" />
-                                    <Button x:Name="ArchiveButton" Style="{StaticResource PrimaryButton}" Content="Disable account" IsEnabled="False" />
+                                    <Button x:Name="ArchiveAddButton" Style="{StaticResource PrimaryButton}" Content="Add to queue" />
                                 </StackPanel>
                             </StackPanel>
                         </Border>
                         <Border Style="{StaticResource Card}">
                             <StackPanel>
-                                <TextBlock Text="Preview" FontWeight="SemiBold" Margin="0,0,0,8" />
-                                <TextBox x:Name="ArchivePreviewText" IsReadOnly="True" TextWrapping="Wrap" AcceptsReturn="True" MinHeight="90" Background="{StaticResource FieldBrush}" BorderThickness="0" />
+                                <TextBlock Text="Queued by this action" FontWeight="SemiBold" Margin="0,0,0,8" />
+                                <TextBox x:Name="ArchivePreviewText" IsReadOnly="True" TextWrapping="Wrap" AcceptsReturn="True" MinHeight="90" Background="{StaticResource FieldBrush}" BorderThickness="0" FontFamily="Consolas" />
                             </StackPanel>
                         </Border>
                     </StackPanel>
                 </ScrollViewer>
             </Grid>
+
+            <Border Grid.Column="2" Background="{StaticResource CardBrush}" BorderBrush="{StaticResource CardBorderBrush}" BorderThickness="1,0,0,0">
+                <Grid Margin="16">
+                    <Grid.RowDefinitions>
+                        <RowDefinition Height="Auto" />
+                        <RowDefinition Height="*" />
+                        <RowDefinition Height="Auto" />
+                    </Grid.RowDefinitions>
+
+                    <StackPanel Grid.Row="0">
+                        <TextBlock Text="Queue" FontSize="18" FontWeight="SemiBold" Foreground="{StaticResource TextBrush}" />
+                        <TextBlock x:Name="QueueCountText" Text="Nothing queued." FontSize="13" Foreground="{StaticResource MutedBrush}" Margin="0,2,0,0" />
+                    </StackPanel>
+
+                    <ListBox Grid.Row="1" x:Name="QueueList" Margin="0,12,0,0" DisplayMemberPath="Label" FontFamily="Consolas" FontSize="12" />
+
+                    <StackPanel Grid.Row="2" Margin="0,12,0,0">
+                        <StackPanel Orientation="Horizontal">
+                            <Button x:Name="QueueApplyButton" Style="{StaticResource PrimaryButton}" Content="Apply all" IsEnabled="False" />
+                            <Button x:Name="QueueRemoveButton" Style="{StaticResource SecondaryButton}" Content="Remove selected" IsEnabled="False" />
+                        </StackPanel>
+                        <Button x:Name="QueueClearButton" Style="{StaticResource SecondaryButton}" Content="Clear queue" HorizontalAlignment="Left" Margin="0,8,0,0" />
+                    </StackPanel>
+                </Grid>
+            </Border>
         </Grid>
 
         <Border Grid.Row="2" Background="{StaticResource CardBrush}" BorderBrush="{StaticResource CardBorderBrush}" BorderThickness="0,1,0,0" Padding="20,10">
@@ -432,31 +418,26 @@ $window = [System.Windows.Markup.XamlReader]::Load($reader)
 $ui = @{}
 foreach ($name in @(
         'DomainLabel', 'StatusText', 'NavList',
-        'PanelOu', 'PanelUser', 'PanelGroup', 'PanelModify', 'PanelArchive',
-        'OuParentCombo', 'OuNameBox', 'OuPreviewButton', 'OuCreateButton', 'OuPreviewText',
+        'PanelOu', 'PanelAgence', 'PanelDepartment', 'PanelUser', 'PanelArchive',
+        'OuParentCombo', 'OuNameBox', 'OuAgencesBox', 'OuDepartmentsBox',
+        'OuAddButton', 'OuPreviewText',
+        'AgParentCombo', 'AgNamesBox', 'AgDepartmentsBox', 'AgAddButton', 'AgPreviewText',
+        'DepParentCombo', 'DepNamesBox', 'DepAddButton', 'DepPreviewText',
         'UserGivenBox', 'UserSurnameBox', 'UserSamBox', 'UserOuCombo',
-        'UserRefreshGroupsButton', 'UserGroupList', 'UserGeneratePasswordButton',
-        'UserPasswordBox', 'UserPreviewButton', 'UserCreateButton', 'UserPreviewText',
-        'GroupOuCombo', 'GroupNameBox', 'GroupScopeCombo', 'GroupCategoryCombo',
-        'GroupPreviewButton', 'GroupCreateButton', 'GroupPreviewText',
-        'ModifyUserBox', 'ModifyLoadButton', 'ModifyCurrentList', 'ModifyRefreshButton',
-        'ModifyAvailableList', 'ModifyAddButton', 'ModifyRemoveButton',
-        'ModifyPendingText', 'ModifyApplyButton',
-        'ArchiveUserBox', 'ArchiveLoadButton', 'ArchiveInfoText',
-        'ArchivePreviewButton', 'ArchiveButton', 'ArchivePreviewText'
+        'UserGeneratePasswordButton', 'UserPasswordBox', 'UserAddButton', 'UserPreviewText',
+        'ArchiveUserBox', 'ArchiveLoadButton', 'ArchiveInfoText', 'ArchiveAddButton', 'ArchivePreviewText',
+        'QueueList', 'QueueCountText', 'QueueApplyButton', 'QueueRemoveButton', 'QueueClearButton'
     )) {
     $ui[$name] = $window.FindName($name)
 }
 
 # --- Script state ------------------------------------------------------------
-# Planned changes are computed at preview time and reused at execution time, so
-# the preview and the executed action can never diverge.
+# The queue holds fully-resolved plans. A queued OU can be selected as the
+# parent of a later action, so a parent is always enqueued before its child and
+# execution order is safe.
+$script:queue = New-Object System.Collections.Generic.List[object]
+$script:existingOus = @()
 $script:generatedPassword = $null
-$script:plannedOu = $null
-$script:plannedUser = $null
-$script:plannedGroup = $null
-$script:modifyUser = $null
-$script:modifyPending = @{}
 $script:archiveUser = $null
 $script:recordDirectory = $RecordDirectory
 
@@ -526,52 +507,82 @@ function Confirm-AdtAction {
     return [bool]($result -eq [System.Windows.MessageBoxResult]::Yes)
 }
 
-function Get-AdtOuChoices {
+function Get-AdtMultilineItems {
+    # Split a multi-line text box into a de-duplicated list of non-empty names.
+    [CmdletBinding()]
+    [OutputType([string[]])]
+    param(
+        [Parameter()]
+        [AllowEmptyString()]
+        [string]$Text
+    )
+
+    $items = New-Object System.Collections.Generic.List[string]
+    foreach ($line in @($Text -split "`r?`n")) {
+        $name = $line.Trim()
+        if ($name -and ($items -notcontains $name)) {
+            $items.Add($name)
+        }
+    }
+    return [string[]]$items.ToArray()
+}
+
+function Get-AdtPendingOuPaths {
+    # Distinguished names of OUs that are queued but not yet created.
     [CmdletBinding()]
     [OutputType([string[]])]
     param()
 
-    $choices = New-Object System.Collections.Generic.List[string]
-    $choices.Add([string](Get-AdtDefaultSearchBase))
-    foreach ($ou in @(Get-AdtOU)) {
-        $choices.Add([string]$ou.DistinguishedName)
+    $paths = New-Object System.Collections.Generic.List[string]
+    foreach ($item in $script:queue) {
+        if ($item.Kind -eq 'OU') {
+            $paths.Add([string]$item.DistinguishedName)
+        }
     }
-    return [string[]]$choices.ToArray()
+    return [string[]]$paths.ToArray()
 }
 
-function Sync-AdtOuCombos {
+function Sync-AdtOuChoices {
+    # Refresh the cached OUs and repopulate every parent picker. Queued OUs are
+    # offered alongside real ones so a user can target an OU not created yet.
     [CmdletBinding()]
     param()
 
-    $choices = Get-AdtOuChoices
-    foreach ($combo in @($ui['OuParentCombo'], $ui['UserOuCombo'], $ui['GroupOuCombo'])) {
-        $previous = $combo.SelectedItem
+    try {
+        $script:existingOus = @(Get-AdtOU)
+    } catch {
+        $script:existingOus = @()
+        Write-AdtStatus -Text $_.Exception.Message -Kind 'Error'
+    }
+
+    $choices = New-Object System.Collections.Generic.List[object]
+    $root = [string](Get-AdtDefaultSearchBase)
+    $choices.Add([pscustomobject]@{ DisplayName = $root; DistinguishedName = $root; Pending = $false })
+
+    foreach ($ou in $script:existingOus) {
+        $dn = [string]$ou.DistinguishedName
+        if ($dn -ne $root) {
+            $choices.Add([pscustomobject]@{ DisplayName = $dn; DistinguishedName = $dn; Pending = $false })
+        }
+    }
+    foreach ($dn in Get-AdtPendingOuPaths) {
+        if (-not ($choices | Where-Object { $_.DistinguishedName -eq $dn })) {
+            $choices.Add([pscustomobject]@{ DisplayName = "$dn   (queued)"; DistinguishedName = $dn; Pending = $true })
+        }
+    }
+
+    foreach ($combo in @($ui['OuParentCombo'], $ui['AgParentCombo'], $ui['DepParentCombo'], $ui['UserOuCombo'])) {
+        $previous = $null
+        if ($combo.SelectedItem) {
+            $previous = [string]$combo.SelectedItem.DistinguishedName
+        }
         $combo.ItemsSource = $choices
-        if ($previous -and ($choices -contains $previous)) {
-            $combo.SelectedItem = $previous
+        $match = $choices | Where-Object { $_.DistinguishedName -eq $previous } | Select-Object -First 1
+        if ($match) {
+            $combo.SelectedItem = $match
         } elseif ($choices.Count -gt 0) {
             $combo.SelectedIndex = 0
         }
-    }
-}
-
-function Sync-AdtUserGroupList {
-    [CmdletBinding()]
-    param()
-
-    $ou = $ui['UserOuCombo'].SelectedItem
-    if (-not $ou) {
-        $ui['UserGroupList'].ItemsSource = @()
-        return
-    }
-
-    try {
-        $groups = @(Get-AdtGroup -SearchBase $ou)
-        $ui['UserGroupList'].ItemsSource = $groups
-        Write-AdtStatus -Text ("Loaded {0} group(s) from {1}." -f $groups.Count, $ou)
-    } catch {
-        $ui['UserGroupList'].ItemsSource = @()
-        Write-AdtStatus -Text $_.Exception.Message -Kind 'Error'
     }
 }
 
@@ -597,8 +608,8 @@ function Sync-AdtPanelVisibility {
     param()
 
     $panels = @(
-        $ui['PanelOu'], $ui['PanelUser'], $ui['PanelGroup'],
-        $ui['PanelModify'], $ui['PanelArchive']
+        $ui['PanelOu'], $ui['PanelAgence'], $ui['PanelDepartment'],
+        $ui['PanelUser'], $ui['PanelArchive']
     )
     for ($i = 0; $i -lt $panels.Count; $i++) {
         if ($i -eq $ui['NavList'].SelectedIndex) {
@@ -609,55 +620,34 @@ function Sync-AdtPanelVisibility {
     }
 }
 
-function Sync-AdtModifyPending {
+function Sync-AdtQueue {
+    # Rebind the queue list and keep the apply/remove buttons in step with it.
     [CmdletBinding()]
     param()
 
-    if ($script:modifyPending.Count -eq 0) {
-        $ui['ModifyPendingText'].Text = 'No pending changes.'
-        $ui['ModifyApplyButton'].IsEnabled = $false
-        return
-    }
+    $ui['QueueList'].ItemsSource = $null
+    $ui['QueueList'].ItemsSource = $script:queue
 
-    $lines = @()
-    foreach ($key in $script:modifyPending.Keys) {
-        $lines += ("  {0,-6} {1}" -f $script:modifyPending[$key], $key)
+    $count = $script:queue.Count
+    if ($count -eq 0) {
+        $ui['QueueCountText'].Text = 'Nothing queued.'
+    } else {
+        $ui['QueueCountText'].Text = "{0} action(s) pending." -f $count
     }
-    $ui['ModifyPendingText'].Text = ($lines -join [Environment]::NewLine)
-    $ui['ModifyApplyButton'].IsEnabled = $true
+    $ui['QueueApplyButton'].IsEnabled = ($count -gt 0)
+    $ui['QueueRemoveButton'].IsEnabled = ($count -gt 0)
 }
 
-function Sync-AdtModifyUser {
+function Add-AdtQueueItem {
     [CmdletBinding()]
-    param()
+    param(
+        [Parameter(Mandatory = $true)]
+        [pscustomobject]$Item
+    )
 
-    try {
-        $identity = $ui['ModifyUserBox'].Text.Trim()
-        if (-not $identity) {
-            Show-AdtMessage -Text 'Enter a user (SamAccountName) to load.' -Kind 'Warning'
-            return
-        }
-
-        $script:modifyUser = Get-AdtUser -Identity $identity
-        $memberships = @($script:modifyUser.MemberOf | ForEach-Object { [pscustomobject]@{ Name = [string]$_ } })
-        $ui['ModifyCurrentList'].ItemsSource = $memberships
-
-        $dn = [string]$script:modifyUser.DistinguishedName
-        $index = $dn.IndexOf(',')
-        if ($index -ge 0) {
-            $searchBase = $dn.Substring($index + 1)
-        } else {
-            $searchBase = Get-AdtDefaultSearchBase
-        }
-        $ui['ModifyAvailableList'].ItemsSource = @(Get-AdtGroup -SearchBase $searchBase)
-
-        $script:modifyPending = @{}
-        Sync-AdtModifyPending
-        Write-AdtStatus -Text "Loaded $($script:modifyUser.SamAccountName) ($($memberships.Count) group(s))."
-    } catch {
-        Write-AdtStatus -Text $_.Exception.Message -Kind 'Error'
-        Show-AdtMessage -Text $_.Exception.Message -Kind 'Error'
-    }
+    $script:queue.Add($Item)
+    Sync-AdtQueue
+    Sync-AdtOuChoices
 }
 
 function Sync-AdtArchiveUser {
@@ -684,12 +674,130 @@ function Sync-AdtArchiveUser {
             "Status         : $state"
         )
         $ui['ArchiveInfoText'].Text = ($lines -join [Environment]::NewLine)
-        $ui['ArchivePreviewText'].Text = ''
-        $ui['ArchiveButton'].IsEnabled = $false
         Write-AdtStatus -Text "Loaded $($script:archiveUser.SamAccountName)."
     } catch {
         Write-AdtStatus -Text $_.Exception.Message -Kind 'Error'
         Show-AdtMessage -Text $_.Exception.Message -Kind 'Error'
+    }
+}
+
+# --- Queue builders ----------------------------------------------------------
+function Add-AdtOuPlan {
+    # Queue one OU plus, optionally, one child OU per agence and one grandchild
+    # OU per department under each agence.
+    [CmdletBinding()]
+    [OutputType([string[]])]
+    param(
+        [Parameter(Mandatory = $true)]
+        [string]$Name,
+
+        [Parameter(Mandatory = $true)]
+        [string]$ParentPath,
+
+        [Parameter()]
+        [string[]]$Agences = @(),
+
+        [Parameter()]
+        [string[]]$Departments = @()
+    )
+
+    $queued = New-Object System.Collections.Generic.List[string]
+    $parentDn = $ParentPath
+    $topDn = "OU=$Name,$parentDn"
+    Add-AdtQueueItem -Item ([pscustomobject]@{
+            Kind = 'OU'
+            Name = $Name
+            ParentPath = $parentDn
+            DistinguishedName = $topDn
+            Label = "OU     $topDn"
+        })
+    $queued.Add($topDn)
+
+    foreach ($agence in $Agences) {
+        $agenceDn = "OU=$agence,$topDn"
+        Add-AdtQueueItem -Item ([pscustomobject]@{
+                Kind = 'OU'
+                Name = $agence
+                ParentPath = $topDn
+                DistinguishedName = $agenceDn
+                Label = "OU     $agenceDn"
+            })
+        $queued.Add($agenceDn)
+
+        foreach ($department in $Departments) {
+            $departmentDn = "OU=$department,$agenceDn"
+            Add-AdtQueueItem -Item ([pscustomobject]@{
+                    Kind = 'OU'
+                    Name = $department
+                    ParentPath = $agenceDn
+                    DistinguishedName = $departmentDn
+                    Label = "OU     $departmentDn"
+                })
+            $queued.Add($departmentDn)
+        }
+    }
+
+    return [string[]]$queued.ToArray()
+}
+
+# --- Batch execution ---------------------------------------------------------
+function Invoke-AdtQueue {
+    # Execute the queue in dependency order: every OU first (in queue order, so
+    # a parent is always created before its child), then users, then archives.
+    [CmdletBinding()]
+    [OutputType([pscustomobject])]
+    param()
+
+    $createdUsers = New-Object System.Collections.Generic.List[object]
+    $failures = New-Object System.Collections.Generic.List[string]
+    $done = 0
+
+    foreach ($kind in @('OU', 'User', 'Archive')) {
+        foreach ($item in @($script:queue | Where-Object { $_.Kind -eq $kind })) {
+            try {
+                switch ($kind) {
+                    'OU' {
+                        [void](New-AdtOU -Name $item.Name -ParentPath $item.ParentPath)
+                    }
+                    'User' {
+                        $secure = ConvertTo-AdtSecureString -PlainText $item.Password
+                        [void](New-AdtUser -SamAccountName $item.SamAccountName `
+                                -GivenName $item.GivenName `
+                                -Surname $item.Surname `
+                                -Path $item.Path `
+                                -AccountPassword $secure)
+                        $createdUsers.Add([pscustomobject]@{
+                                SamAccountName = $item.SamAccountName
+                                Password = $item.Password
+                            })
+                    }
+                    'Archive' {
+                        [void](Disable-AdtUser -Identity $item.Identity)
+                    }
+                }
+                $done++
+            } catch {
+                $failures.Add(("{0} : {1}" -f $item.Label, $_.Exception.Message))
+            }
+        }
+    }
+
+    $recordPath = $null
+    if ($createdUsers.Count -gt 0) {
+        if ($script:recordDirectory) {
+            $saved = Save-AdtCredentialRecord -Record @($createdUsers) -Directory $script:recordDirectory
+        } else {
+            $saved = Save-AdtCredentialRecord -Record @($createdUsers)
+        }
+        $recordPath = [string]$saved.Path
+    }
+
+    return [pscustomobject]@{
+        Succeeded = $done
+        Failed = $failures.Count
+        Failures = @($failures)
+        UsersCreated = $createdUsers.Count
+        RecordPath = $recordPath
     }
 }
 
@@ -698,7 +806,7 @@ function Sync-AdtArchiveUser {
 $ui['NavList'].Add_SelectionChanged({ Sync-AdtPanelVisibility })
 
 # Create OU
-$ui['OuPreviewButton'].Add_Click({
+$ui['OuAddButton'].Add_Click({
         try {
             $name = $ui['OuNameBox'].Text.Trim()
             $parent = $ui['OuParentCombo'].SelectedItem
@@ -711,41 +819,81 @@ $ui['OuPreviewButton'].Add_Click({
                 return
             }
 
-            $script:plannedOu = [pscustomobject]@{ Name = $name; Parent = [string]$parent }
-            $lines = @(
-                'Will create organizational unit:'
-                "  Name   : $name"
-                "  Parent : $parent"
-                ''
-                'No change is made until you press Create OU.'
-            )
-            $ui['OuPreviewText'].Text = ($lines -join [Environment]::NewLine)
-            $ui['OuCreateButton'].IsEnabled = $true
-            Write-AdtStatus -Text 'OU preview ready. Press Create OU to apply.'
+            $agences = @(Get-AdtMultilineItems -Text $ui['OuAgencesBox'].Text)
+            $departments = @(Get-AdtMultilineItems -Text $ui['OuDepartmentsBox'].Text)
+            $parentDn = [string]$parent.DistinguishedName
+
+            $queued = Add-AdtOuPlan -Name $name -ParentPath $parentDn -Agences $agences -Departments $departments
+            $ui['OuPreviewText'].Text = ($queued -join [Environment]::NewLine)
+            $ui['OuNameBox'].Text = ''
+            $ui['OuAgencesBox'].Text = ''
+            $ui['OuDepartmentsBox'].Text = ''
+            Write-AdtStatus -Text ("Queued {0} OU(s). Review the queue, then press Apply all." -f $queued.Count) -Kind 'Success'
         } catch {
             Write-AdtStatus -Text $_.Exception.Message -Kind 'Error'
             Show-AdtMessage -Text $_.Exception.Message -Kind 'Error'
         }
     })
 
-$ui['OuCreateButton'].Add_Click({
+# Add agence
+$ui['AgAddButton'].Add_Click({
         try {
-            if (-not $script:plannedOu) {
+            $parent = $ui['AgParentCombo'].SelectedItem
+            if (-not $parent) {
+                Show-AdtMessage -Text 'Choose a parent container.' -Kind 'Warning'
                 return
             }
-            $prompt = "Create OU '{0}' under '{1}'?" -f $script:plannedOu.Name, $script:plannedOu.Parent
-            if (-not (Confirm-AdtAction -Text $prompt -Title 'Create organizational unit')) {
+            $agences = @(Get-AdtMultilineItems -Text $ui['AgNamesBox'].Text)
+            if ($agences.Count -eq 0) {
+                Show-AdtMessage -Text 'Enter at least one agence name.' -Kind 'Warning'
                 return
             }
+            $departments = @(Get-AdtMultilineItems -Text $ui['AgDepartmentsBox'].Text)
 
-            $result = New-AdtOU -Name $script:plannedOu.Name -ParentPath $script:plannedOu.Parent
-            if ($result.Success) {
-                Write-AdtStatus -Text "Created OU $($result.DistinguishedName)." -Kind 'Success'
-                $ui['OuPreviewText'].Text = "Created:`r`n  $($result.DistinguishedName)"
-                $ui['OuCreateButton'].IsEnabled = $false
-                $ui['OuNameBox'].Text = ''
-                Sync-AdtOuCombos
+            $queued = New-Object System.Collections.Generic.List[string]
+            foreach ($agence in $agences) {
+                $queued.AddRange([string[]](Add-AdtOuPlan -Name $agence -ParentPath ([string]$parent.DistinguishedName) -Departments $departments))
             }
+            $ui['AgPreviewText'].Text = ($queued -join [Environment]::NewLine)
+            $ui['AgNamesBox'].Text = ''
+            $ui['AgDepartmentsBox'].Text = ''
+            Write-AdtStatus -Text ("Queued {0} OU(s). Review the queue, then press Apply all." -f $queued.Count) -Kind 'Success'
+        } catch {
+            Write-AdtStatus -Text $_.Exception.Message -Kind 'Error'
+            Show-AdtMessage -Text $_.Exception.Message -Kind 'Error'
+        }
+    })
+
+# Add department
+$ui['DepAddButton'].Add_Click({
+        try {
+            $parent = $ui['DepParentCombo'].SelectedItem
+            if (-not $parent) {
+                Show-AdtMessage -Text 'Choose a parent agence.' -Kind 'Warning'
+                return
+            }
+            $departments = @(Get-AdtMultilineItems -Text $ui['DepNamesBox'].Text)
+            if ($departments.Count -eq 0) {
+                Show-AdtMessage -Text 'Enter at least one department name.' -Kind 'Warning'
+                return
+            }
+            $parentDn = [string]$parent.DistinguishedName
+
+            $queued = New-Object System.Collections.Generic.List[string]
+            foreach ($department in $departments) {
+                $dn = "OU=$department,$parentDn"
+                Add-AdtQueueItem -Item ([pscustomobject]@{
+                        Kind = 'OU'
+                        Name = $department
+                        ParentPath = $parentDn
+                        DistinguishedName = $dn
+                        Label = "OU     $dn"
+                    })
+                $queued.Add($dn)
+            }
+            $ui['DepPreviewText'].Text = ($queued -join [Environment]::NewLine)
+            $ui['DepNamesBox'].Text = ''
+            Write-AdtStatus -Text ("Queued {0} OU(s). Review the queue, then press Apply all." -f $queued.Count) -Kind 'Success'
         } catch {
             Write-AdtStatus -Text $_.Exception.Message -Kind 'Error'
             Show-AdtMessage -Text $_.Exception.Message -Kind 'Error'
@@ -755,23 +903,20 @@ $ui['OuCreateButton'].Add_Click({
 # Create user
 $ui['UserGivenBox'].Add_TextChanged({ Sync-AdtSamPreview })
 $ui['UserSurnameBox'].Add_TextChanged({ Sync-AdtSamPreview })
-$ui['UserOuCombo'].Add_SelectionChanged({ Sync-AdtUserGroupList })
-$ui['UserRefreshGroupsButton'].Add_Click({ Sync-AdtUserGroupList })
 
 $ui['UserGeneratePasswordButton'].Add_Click({
         try {
             $generated = New-AdtPassword
             $script:generatedPassword = [string]$generated.Password
             $ui['UserPasswordBox'].Text = $script:generatedPassword
-            $ui['UserCreateButton'].IsEnabled = $false
-            Write-AdtStatus -Text 'Password generated. Preview the user to enable creation.'
+            Write-AdtStatus -Text 'Password generated.'
         } catch {
             Write-AdtStatus -Text $_.Exception.Message -Kind 'Error'
             Show-AdtMessage -Text $_.Exception.Message -Kind 'Error'
         }
     })
 
-$ui['UserPreviewButton'].Add_Click({
+$ui['UserAddButton'].Add_Click({
         try {
             $given = $ui['UserGivenBox'].Text.Trim()
             $surname = $ui['UserSurnameBox'].Text.Trim()
@@ -781,296 +926,152 @@ $ui['UserPreviewButton'].Add_Click({
                 return
             }
             if (-not $ou) {
-                Show-AdtMessage -Text 'Choose an organizational unit.' -Kind 'Warning'
+                Show-AdtMessage -Text 'Choose a department OU.' -Kind 'Warning'
                 return
             }
+
             if (-not $script:generatedPassword) {
-                Show-AdtMessage -Text 'Generate a password first.' -Kind 'Warning'
-                return
+                $generated = New-AdtPassword
+                $script:generatedPassword = [string]$generated.Password
+                $ui['UserPasswordBox'].Text = $script:generatedPassword
             }
 
             $sam = Get-AdtSamAccountName -GivenName $given -Surname $surname
-            $groupDns = @($ui['UserGroupList'].SelectedItems | ForEach-Object { [string]$_.DistinguishedName })
-            $script:plannedUser = [pscustomobject]@{
-                GivenName = $given
-                Surname = $surname
-                Sam = $sam
-                Ou = [string]$ou
-                Groups = $groupDns
-            }
+            $path = [string]$ou.DistinguishedName
+            $label = "USER   $sam   pw=$script:generatedPassword   ->  $path"
 
-            $groupsText = '(none)'
-            if ($groupDns.Count -gt 0) {
-                $groupsText = $groupDns -join ([Environment]::NewLine + '             ')
-            }
-            $lines = @(
-                'Will create user:'
-                "  Display name : $given $surname"
-                "  SamAccount   : $sam"
-                "  OU           : $ou"
-                "  Groups       : $groupsText"
-                "  Password     : $script:generatedPassword"
-                '  Change password at next logon : no'
-                ''
-                'The password above is shown in clear on purpose and will be'
-                'written to the temporary credential record on success.'
+            Add-AdtQueueItem -Item ([pscustomobject]@{
+                    Kind = 'User'
+                    GivenName = $given
+                    Surname = $surname
+                    SamAccountName = $sam
+                    Path = $path
+                    Password = $script:generatedPassword
+                    Label = $label
+                })
+
+            $ui['UserPreviewText'].Text = (
+                "Queued user:" +
+                [Environment]::NewLine + "  Display name : $given $surname" +
+                [Environment]::NewLine + "  SamAccount   : $sam" +
+                [Environment]::NewLine + "  OU           : $path" +
+                [Environment]::NewLine + "  Password     : $script:generatedPassword" +
+                [Environment]::NewLine + "  Change password at next logon : no"
             )
-            $ui['UserPreviewText'].Text = ($lines -join [Environment]::NewLine)
-            $ui['UserCreateButton'].IsEnabled = $true
-            Write-AdtStatus -Text 'User preview ready. Press Create user to apply.'
-        } catch {
-            Write-AdtStatus -Text $_.Exception.Message -Kind 'Error'
-            Show-AdtMessage -Text $_.Exception.Message -Kind 'Error'
-        }
-    })
 
-$ui['UserCreateButton'].Add_Click({
-        try {
-            if (-not $script:plannedUser) {
-                return
-            }
-            $prompt = "Create user '{0}' in '{1}'?" -f $script:plannedUser.Sam, $script:plannedUser.Ou
-            if (-not (Confirm-AdtAction -Text $prompt -Title 'Create user')) {
-                return
-            }
-
-            $secure = ConvertTo-AdtSecureString -PlainText $script:generatedPassword
-            $result = New-AdtUser -SamAccountName $script:plannedUser.Sam `
-                -GivenName $script:plannedUser.GivenName `
-                -Surname $script:plannedUser.Surname `
-                -Path $script:plannedUser.Ou `
-                -AccountPassword $secure `
-                -Group $script:plannedUser.Groups
-
-            $record = [pscustomobject]@{
-                SamAccountName = $result.SamAccountName
-                Password = $script:generatedPassword
-            }
-            if ($script:recordDirectory) {
-                $saved = Save-AdtCredentialRecord -Record @($record) -Directory $script:recordDirectory
-            } else {
-                $saved = Save-AdtCredentialRecord -Record @($record)
-            }
-
-            $lines = @(
-                "Created $($result.SamAccountName)."
-                ''
-                "Credential record: $($saved.Path)"
-                ''
-                'That file is cleartext. Give it to the user, then delete it.'
-                'Never commit it and never leave it in the repository.'
-            )
-            $ui['UserPreviewText'].Text = ($lines -join [Environment]::NewLine)
-            $ui['UserCreateButton'].IsEnabled = $false
-            $script:plannedUser = $null
             $script:generatedPassword = $null
             $ui['UserPasswordBox'].Text = ''
             $ui['UserGivenBox'].Text = ''
             $ui['UserSurnameBox'].Text = ''
             $ui['UserSamBox'].Text = ''
-            $ui['UserGroupList'].SelectedItems.Clear()
-            Write-AdtStatus -Text "Created $($result.SamAccountName). Credentials written to $($saved.Path)." -Kind 'Success'
+            Write-AdtStatus -Text "Queued $sam. Review the queue, then press Apply all." -Kind 'Success'
         } catch {
             Write-AdtStatus -Text $_.Exception.Message -Kind 'Error'
             Show-AdtMessage -Text $_.Exception.Message -Kind 'Error'
         }
     })
 
-# Create group
-$ui['GroupPreviewButton'].Add_Click({
+# Archive user
+$ui['ArchiveLoadButton'].Add_Click({ Sync-AdtArchiveUser })
+
+$ui['ArchiveAddButton'].Add_Click({
         try {
-            $name = $ui['GroupNameBox'].Text.Trim()
-            $ou = $ui['GroupOuCombo'].SelectedItem
-            if (-not $name) {
-                Show-AdtMessage -Text 'Enter a group name.' -Kind 'Warning'
-                return
-            }
-            if (-not $ou) {
-                Show-AdtMessage -Text 'Choose an organizational unit.' -Kind 'Warning'
-                return
-            }
-
-            $scope = [string]$ui['GroupScopeCombo'].SelectedItem
-            $category = [string]$ui['GroupCategoryCombo'].SelectedItem
-            $script:plannedGroup = [pscustomobject]@{ Name = $name; Ou = [string]$ou; Scope = $scope; Category = $category }
-
-            $lines = @(
-                'Will create group:'
-                "  Name     : $name"
-                "  OU       : $ou"
-                "  Scope    : $scope"
-                "  Category : $category"
-                ''
-                'No permissions are configured.'
-            )
-            $ui['GroupPreviewText'].Text = ($lines -join [Environment]::NewLine)
-            $ui['GroupCreateButton'].IsEnabled = $true
-            Write-AdtStatus -Text 'Group preview ready. Press Create group to apply.'
-        } catch {
-            Write-AdtStatus -Text $_.Exception.Message -Kind 'Error'
-            Show-AdtMessage -Text $_.Exception.Message -Kind 'Error'
-        }
-    })
-
-$ui['GroupCreateButton'].Add_Click({
-        try {
-            if (-not $script:plannedGroup) {
-                return
-            }
-            $prompt = "Create group '{0}' in '{1}'?" -f $script:plannedGroup.Name, $script:plannedGroup.Ou
-            if (-not (Confirm-AdtAction -Text $prompt -Title 'Create group')) {
-                return
-            }
-
-            $result = New-AdtGroup -Name $script:plannedGroup.Name -Path $script:plannedGroup.Ou `
-                -GroupScope $script:plannedGroup.Scope -GroupCategory $script:plannedGroup.Category
-            if ($result.Success) {
-                Write-AdtStatus -Text "Created group $($result.DistinguishedName)." -Kind 'Success'
-                $ui['GroupPreviewText'].Text = "Created:`r`n  $($result.DistinguishedName)"
-                $ui['GroupCreateButton'].IsEnabled = $false
-                $ui['GroupNameBox'].Text = ''
-            }
-        } catch {
-            Write-AdtStatus -Text $_.Exception.Message -Kind 'Error'
-            Show-AdtMessage -Text $_.Exception.Message -Kind 'Error'
-        }
-    })
-
-# Modify user (group membership only)
-$ui['ModifyLoadButton'].Add_Click({ Sync-AdtModifyUser })
-$ui['ModifyRefreshButton'].Add_Click({ Sync-AdtModifyUser })
-
-$ui['ModifyAddButton'].Add_Click({
-        try {
-            if (-not $script:modifyUser) {
+            if (-not $script:archiveUser) {
                 Show-AdtMessage -Text 'Load a user first.' -Kind 'Warning'
                 return
             }
-            $selected = @($ui['ModifyAvailableList'].SelectedItems)
-            if ($selected.Count -eq 0) {
-                Show-AdtMessage -Text 'Select one or more groups.' -Kind 'Warning'
-                return
-            }
-
-            foreach ($group in $selected) {
-                $dn = [string]$group.DistinguishedName
-                if (@($script:modifyUser.MemberOf) -contains $dn) {
-                    $script:modifyPending.Remove($dn) | Out-Null
-                } else {
-                    $script:modifyPending[$dn] = 'Add'
-                }
-            }
-            Sync-AdtModifyPending
+            $sam = [string]$script:archiveUser.SamAccountName
+            Add-AdtQueueItem -Item ([pscustomobject]@{
+                    Kind = 'Archive'
+                    Identity = $sam
+                    Label = "ARCH  $sam"
+                })
+            $ui['ArchivePreviewText'].Text = "Queued disable for '$sam'."
+            $ui['ArchiveUserBox'].Text = ''
+            $ui['ArchiveInfoText'].Text = ''
+            $script:archiveUser = $null
+            Write-AdtStatus -Text "Queued disable for $sam. Review the queue, then press Apply all." -Kind 'Success'
         } catch {
             Write-AdtStatus -Text $_.Exception.Message -Kind 'Error'
             Show-AdtMessage -Text $_.Exception.Message -Kind 'Error'
         }
     })
 
-$ui['ModifyRemoveButton'].Add_Click({
+# Queue controls
+$ui['QueueRemoveButton'].Add_Click({
         try {
-            if (-not $script:modifyUser) {
-                Show-AdtMessage -Text 'Load a user first.' -Kind 'Warning'
-                return
-            }
-            $selected = @($ui['ModifyAvailableList'].SelectedItems)
+            $selected = @($ui['QueueList'].SelectedItems)
             if ($selected.Count -eq 0) {
-                Show-AdtMessage -Text 'Select one or more groups.' -Kind 'Warning'
                 return
             }
-
-            foreach ($group in $selected) {
-                $dn = [string]$group.DistinguishedName
-                if (@($script:modifyUser.MemberOf) -contains $dn) {
-                    $script:modifyPending[$dn] = 'Remove'
-                } else {
-                    $script:modifyPending.Remove($dn) | Out-Null
-                }
+            foreach ($item in $selected) {
+                [void]$script:queue.Remove($item)
             }
-            Sync-AdtModifyPending
+            Sync-AdtQueue
+            Sync-AdtOuChoices
+            Write-AdtStatus -Text ("Removed {0} queued action(s)." -f $selected.Count)
         } catch {
             Write-AdtStatus -Text $_.Exception.Message -Kind 'Error'
-            Show-AdtMessage -Text $_.Exception.Message -Kind 'Error'
         }
     })
 
-$ui['ModifyApplyButton'].Add_Click({
+$ui['QueueClearButton'].Add_Click({
+        $script:queue.Clear()
+        Sync-AdtQueue
+        Sync-AdtOuChoices
+        Write-AdtStatus -Text 'Queue cleared.'
+    })
+
+$ui['QueueApplyButton'].Add_Click({
         try {
-            if (-not $script:modifyUser) {
-                return
-            }
-            if ($script:modifyPending.Count -eq 0) {
+            if ($script:queue.Count -eq 0) {
                 return
             }
 
             $summary = @()
-            foreach ($dn in $script:modifyPending.Keys) {
-                $summary += ("  {0} {1}" -f $script:modifyPending[$dn], $dn)
+            foreach ($item in $script:queue) {
+                $summary += "  $($item.Label)"
             }
-            $prompt = "Apply these membership changes to '{0}'?`n`n{1}" -f $script:modifyUser.SamAccountName, ($summary -join [Environment]::NewLine)
-            if (-not (Confirm-AdtAction -Text $prompt -Title 'Modify user')) {
+            $body = "Apply these {0} action(s) to the directory?`n`n{1}" -f $script:queue.Count, ($summary -join [Environment]::NewLine)
+            if (-not (Confirm-AdtAction -Text $body -Title 'Apply all')) {
                 return
             }
 
-            $applied = 0
-            foreach ($dn in @($script:modifyPending.Keys)) {
-                $action = $script:modifyPending[$dn]
-                if ($action -eq 'Add') {
-                    [void](Add-AdtGroupMember -Identity $dn -Members $script:modifyUser.SamAccountName)
-                } else {
-                    [void](Remove-AdtGroupMember -Identity $dn -Members $script:modifyUser.SamAccountName)
-                }
-                $applied++
-            }
+            $result = Invoke-AdtQueue
+            $script:queue.Clear()
+            Sync-AdtQueue
+            Sync-AdtOuChoices
 
-            Write-AdtStatus -Text "Applied $applied membership change(s) to $($script:modifyUser.SamAccountName)." -Kind 'Success'
-            $script:modifyPending = @{}
-            Sync-AdtModifyUser
-        } catch {
-            Write-AdtStatus -Text $_.Exception.Message -Kind 'Error'
-            Show-AdtMessage -Text $_.Exception.Message -Kind 'Error'
-        }
-    })
-
-# Archive user (disable only)
-$ui['ArchiveLoadButton'].Add_Click({ Sync-AdtArchiveUser })
-
-$ui['ArchivePreviewButton'].Add_Click({
-        try {
-            if (-not $script:archiveUser) {
-                Show-AdtMessage -Text 'Load a user first.' -Kind 'Warning'
-                return
-            }
             $lines = @(
-                "Will disable account '$($script:archiveUser.SamAccountName)'."
-                ''
-                'The account is not deleted and is not moved. Group membership and'
-                'all other attributes are left unchanged.'
+                "Succeeded : $($result.Succeeded)"
+                "Failed    : $($result.Failed)"
             )
-            $ui['ArchivePreviewText'].Text = ($lines -join [Environment]::NewLine)
-            $ui['ArchiveButton'].IsEnabled = $true
-            Write-AdtStatus -Text 'Archive preview ready. Press Disable account to apply.'
-        } catch {
-            Write-AdtStatus -Text $_.Exception.Message -Kind 'Error'
-            Show-AdtMessage -Text $_.Exception.Message -Kind 'Error'
-        }
-    })
-
-$ui['ArchiveButton'].Add_Click({
-        try {
-            if (-not $script:archiveUser) {
-                return
+            if ($result.UsersCreated -gt 0) {
+                $lines += ''
+                $lines += "Credential record: $($result.RecordPath)"
+                $lines += 'That file is cleartext. Hand it over, then delete it.'
+                $lines += 'Never commit it and never leave it in the repository.'
             }
-            $prompt = "Disable account '{0}'?" -f $script:archiveUser.SamAccountName
-            if (-not (Confirm-AdtAction -Text $prompt -Title 'Archive user')) {
-                return
+            if ($result.Failed -gt 0) {
+                $lines += ''
+                $lines += 'Failures:'
+                foreach ($failure in $result.Failures) {
+                    $lines += "  $failure"
+                }
             }
 
-            $result = Disable-AdtUser -Identity $script:archiveUser.SamAccountName
-            if ($result.Success) {
-                $ui['ArchivePreviewText'].Text = "Disabled $($result.Identity)."
-                $ui['ArchiveButton'].IsEnabled = $false
-                Write-AdtStatus -Text "Disabled $($result.Identity)." -Kind 'Success'
+            $icon = [System.Windows.MessageBoxImage]::Information
+            if ($result.Failed -gt 0) {
+                $icon = [System.Windows.MessageBoxImage]::Warning
+            }
+            [void][System.Windows.MessageBox]::Show(
+                ($lines -join [Environment]::NewLine), 'Apply all',
+                [System.Windows.MessageBoxButton]::OK, $icon)
+
+            if ($result.Failed -gt 0) {
+                Write-AdtStatus -Text ("Applied {0} action(s); {1} failed." -f $result.Succeeded, $result.Failed) -Kind 'Error'
+            } else {
+                Write-AdtStatus -Text ("Applied {0} action(s)." -f $result.Succeeded) -Kind 'Success'
             }
         } catch {
             Write-AdtStatus -Text $_.Exception.Message -Kind 'Error'
@@ -1079,13 +1080,8 @@ $ui['ArchiveButton'].Add_Click({
     })
 
 # --- Initial population ------------------------------------------------------
-$ui['NavList'].ItemsSource = @('Create OU', 'Create User', 'Create Group', 'Modify User', 'Archive User')
+$ui['NavList'].ItemsSource = @('Create OU', 'Add agence', 'Add department', 'Create user', 'Archive user')
 $ui['NavList'].SelectedIndex = 0
-
-$ui['GroupScopeCombo'].ItemsSource = @('Global', 'DomainLocal', 'Universal')
-$ui['GroupScopeCombo'].SelectedIndex = 0
-$ui['GroupCategoryCombo'].ItemsSource = @('Security', 'Distribution')
-$ui['GroupCategoryCombo'].SelectedIndex = 0
 
 try {
     $domain = Get-AdtDefaultSearchBase
@@ -1097,8 +1093,8 @@ try {
 }
 
 try {
-    Sync-AdtOuCombos
-    Sync-AdtUserGroupList
+    Sync-AdtOuChoices
+    Sync-AdtQueue
     Write-AdtStatus -Text 'Ready.'
 } catch {
     Write-AdtStatus -Text $_.Exception.Message -Kind 'Error'
