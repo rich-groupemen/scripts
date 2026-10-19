@@ -384,6 +384,20 @@ Describe 'Save-AdtCredentialRecord' {
         $r.Success | Should -BeFalse
         Test-Path -LiteralPath $r.Path | Should -BeFalse
     }
+
+    It 'defaults the record directory to the operator Documents folder' {
+        $records = @(
+            [pscustomobject]@{ SamAccountName = 'richard.pearsall'; Password = 'Porte8402!' }
+        )
+        $documents = [System.Environment]::GetFolderPath(
+            [System.Environment+SpecialFolder]::MyDocuments)
+
+        # -WhatIf so the assertion does not litter the real Documents folder.
+        $r = Save-AdtCredentialRecord -Record $records -Timestamp '20261016-0930' -WhatIf
+
+        Split-Path -Path $r.Path -Parent | Should -Be $documents
+        $r.Success | Should -BeFalse
+    }
 }
 
 Describe 'ConvertTo-AdtSecureString' {

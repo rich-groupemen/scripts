@@ -553,8 +553,9 @@ function Save-AdtCredentialRecord {
     .SYNOPSIS
         Write the temporary credential record for one or more created users.
     .DESCRIPTION
-        Produces ad-tools-created-users-YYYYMMDD-HHMM.txt in the system temp
-        directory, containing username and cleartext password for each user.
+        Produces ad-tools-created-users-YYYYMMDD-HHMM.txt in the operator's
+        Documents folder, containing username and cleartext password for each
+        user.
 
         This is a one-time memory record so the operator can hand credentials
         to the new user. It is sensitive (cleartext) and must NEVER be
@@ -574,9 +575,12 @@ function Save-AdtCredentialRecord {
     )
 
     if (-not $Directory) {
-        $Directory = $env:TEMP
+        # Prefer the operator's Documents folder: easy to find, and it carries
+        # a per-user ACL so other accounts on the box cannot read it.
+        $Directory = [System.Environment]::GetFolderPath(
+            [System.Environment+SpecialFolder]::MyDocuments)
         if ([string]::IsNullOrEmpty($Directory)) {
-            $Directory = $env:TMP
+            $Directory = $env:TEMP
         }
         if ([string]::IsNullOrEmpty($Directory)) {
             $Directory = [System.IO.Path]::GetTempPath()
