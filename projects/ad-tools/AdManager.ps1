@@ -9,11 +9,26 @@
 
     Les actions s'accumulent dans une file d'attente. Rien n'est écrit dans
     l'annuaire tant que l'opérateur n'a pas relu le plan complet et cliqué sur
-    Tout appliquer. La file contient le plan entièrement résolu au moment de
+    Appliquer. La file contient le plan entièrement résolu au moment de
     l'ajout : ce qui est relu est exactement ce qui s'exécute.
 
+    Chaque section ne propose que les sélecteurs dont elle a besoin :
+
+      - Créer un OU        : un nom seul. L'OU est créée à la racine du
+                             domaine, au premier niveau.
+      - Créer une agence   : choisir l'établissement, puis un nom par agence.
+      - Créer un départem. : choisir l'établissement puis l'agence, puis un
+                             nom par département.
+      - Créer un utilisateur : choisir les trois niveaux dans l'ordre, puis
+                             les identités.
+
+    Les OU mises en file mais pas encore créées apparaissent dans les listes
+    avec la mention « (en attente) » : un opérateur peut donc préparer tout un
+    nouveau site — OU, agences, départements, utilisateurs — avant la première
+    écriture dans l'annuaire.
+
     Règles de conception :
-      - Windows PowerShell 5.1 uniquement (exception au règle PS7 du dépôt).
+      - Windows PowerShell 5.1 uniquement (exception à la règle PS7 du dépôt).
       - Application STA, uniquement PresentationFramework/PresentationCore/
         WindowsBase. Aucune bibliothèque de thème tierce ; le style Fluent est
         du XAML écrit à la main.
@@ -109,6 +124,14 @@ $xaml = @'
             <Setter Property="Margin" Value="0,10,0,4" />
             <Setter Property="Foreground" Value="{StaticResource MutedBrush}" />
             <Setter Property="FontSize" Value="13" />
+        </Style>
+
+        <Style x:Key="Hint" TargetType="TextBlock">
+            <Setter Property="Margin" Value="0,4,0,0" />
+            <Setter Property="Foreground" Value="{StaticResource MutedBrush}" />
+            <Setter Property="FontSize" Value="12" />
+            <Setter Property="FontStyle" Value="Italic" />
+            <Setter Property="TextWrapping" Value="Wrap" />
         </Style>
 
         <Style x:Key="PrimaryButton" TargetType="Button">
@@ -218,22 +241,14 @@ $xaml = @'
             <Grid Grid.Column="1">
                 <ScrollViewer x:Name="PanelOu" VerticalScrollBarVisibility="Auto">
                     <StackPanel Margin="24">
-                        <TextBlock Style="{StaticResource SectionTitle}" Text="Créer une OU" />
-                        <TextBlock Text="Crée une OU et, si vous le souhaitez, une agence par succursale ainsi qu'un département par agence. Rien n'est créé avant Tout appliquer." Foreground="{StaticResource MutedBrush}" Margin="0,0,0,12" TextWrapping="Wrap" />
+                        <TextBlock Style="{StaticResource SectionTitle}" Text="Créer un OU" />
+                        <TextBlock Text="Crée une unité d'organisation au premier niveau, directement sous la racine du domaine. C'est la première étape pour ouvrir un nouvel établissement. Rien n'est créé avant Appliquer." Foreground="{StaticResource MutedBrush}" Margin="0,0,0,12" TextWrapping="Wrap" />
                         <Border Style="{StaticResource Card}">
                             <StackPanel>
-                                <TextBlock Style="{StaticResource FieldLabel}" Text="Établissement" />
-                                <ComboBox x:Name="OuLvl1" DisplayMemberPath="Name" />
-                                <TextBlock Style="{StaticResource FieldLabel}" Text="Agence" />
-                                <ComboBox x:Name="OuLvl2" DisplayMemberPath="Name" />
-                                <TextBlock Style="{StaticResource FieldLabel}" Text="Département" />
-                                <ComboBox x:Name="OuLvl3" DisplayMemberPath="Name" />
+                                <TextBlock Style="{StaticResource FieldLabel}" Text="Créée sous" />
+                                <TextBox x:Name="OuParentText" IsReadOnly="True" Background="{StaticResource FieldBrush}" BorderThickness="0" />
                                 <TextBlock Style="{StaticResource FieldLabel}" Text="Nom de la nouvelle OU" />
                                 <TextBox x:Name="OuNameBox" />
-                                <TextBlock Style="{StaticResource FieldLabel}" Text="Noms des agences (un par ligne, facultatif)" />
-                                <TextBox x:Name="OuAgencesBox" AcceptsReturn="True" TextWrapping="Wrap" Height="72" VerticalScrollBarVisibility="Auto" />
-                                <TextBlock Style="{StaticResource FieldLabel}" Text="Noms des départements pour chaque agence (un par ligne, facultatif)" />
-                                <TextBox x:Name="OuDepartmentsBox" AcceptsReturn="True" TextWrapping="Wrap" Height="72" VerticalScrollBarVisibility="Auto" />
                                 <StackPanel Orientation="Horizontal" Margin="0,18,0,0">
                                     <Button x:Name="OuAddButton" Style="{StaticResource PrimaryButton}" Content="Ajouter à la file" />
                                 </StackPanel>
@@ -242,7 +257,7 @@ $xaml = @'
                         <Border Style="{StaticResource Card}">
                             <StackPanel>
                                 <TextBlock Text="Ajouté par cette action" FontWeight="SemiBold" Margin="0,0,0,8" />
-                                <TextBox x:Name="OuPreviewText" IsReadOnly="True" TextWrapping="Wrap" AcceptsReturn="True" MinHeight="90" Background="{StaticResource FieldBrush}" BorderThickness="0" />
+                                <TextBox x:Name="OuPreviewText" IsReadOnly="True" TextWrapping="Wrap" AcceptsReturn="True" MinHeight="70" Background="{StaticResource FieldBrush}" BorderThickness="0" />
                             </StackPanel>
                         </Border>
                     </StackPanel>
@@ -250,20 +265,15 @@ $xaml = @'
 
                 <ScrollViewer x:Name="PanelAgence" VerticalScrollBarVisibility="Auto" Visibility="Collapsed">
                     <StackPanel Margin="24">
-                        <TextBlock Style="{StaticResource SectionTitle}" Text="Ajouter une agence" />
-                        <TextBlock Text="Ajoute une OU par agence sous un conteneur existant ou en attente. Rien n'est créé avant Tout appliquer." Foreground="{StaticResource MutedBrush}" Margin="0,0,0,12" TextWrapping="Wrap" />
+                        <TextBlock Style="{StaticResource SectionTitle}" Text="Créer une agence" />
+                        <TextBlock Text="Ajoute une agence par nom sous l'établissement choisi. Rien n'est créé avant Appliquer." Foreground="{StaticResource MutedBrush}" Margin="0,0,0,12" TextWrapping="Wrap" />
                         <Border Style="{StaticResource Card}">
                             <StackPanel>
-                                <TextBlock Style="{StaticResource FieldLabel}" Text="Établissement" />
+                                <TextBlock Style="{StaticResource FieldLabel}" Text="Établissement (où créer l'agence)" />
                                 <ComboBox x:Name="AgLvl1" DisplayMemberPath="Name" />
-                                <TextBlock Style="{StaticResource FieldLabel}" Text="Agence" />
-                                <ComboBox x:Name="AgLvl2" DisplayMemberPath="Name" />
-                                <TextBlock Style="{StaticResource FieldLabel}" Text="Département" />
-                                <ComboBox x:Name="AgLvl3" DisplayMemberPath="Name" />
+                                <TextBlock x:Name="AgHintText" Style="{StaticResource Hint}" Text="Aucun établissement disponible. Créez-en d'abord un dans « Créer un OU »." Visibility="Collapsed" />
                                 <TextBlock Style="{StaticResource FieldLabel}" Text="Noms des agences (un par ligne)" />
-                                <TextBox x:Name="AgNamesBox" AcceptsReturn="True" TextWrapping="Wrap" Height="88" VerticalScrollBarVisibility="Auto" />
-                                <TextBlock Style="{StaticResource FieldLabel}" Text="Noms des départements pour chaque agence (un par ligne, facultatif)" />
-                                <TextBox x:Name="AgDepartmentsBox" AcceptsReturn="True" TextWrapping="Wrap" Height="72" VerticalScrollBarVisibility="Auto" />
+                                <TextBox x:Name="AgNamesBox" AcceptsReturn="True" TextWrapping="Wrap" Height="96" VerticalScrollBarVisibility="Auto" />
                                 <StackPanel Orientation="Horizontal" Margin="0,18,0,0">
                                     <Button x:Name="AgAddButton" Style="{StaticResource PrimaryButton}" Content="Ajouter à la file" />
                                 </StackPanel>
@@ -272,7 +282,7 @@ $xaml = @'
                         <Border Style="{StaticResource Card}">
                             <StackPanel>
                                 <TextBlock Text="Ajouté par cette action" FontWeight="SemiBold" Margin="0,0,0,8" />
-                                <TextBox x:Name="AgPreviewText" IsReadOnly="True" TextWrapping="Wrap" AcceptsReturn="True" MinHeight="90" Background="{StaticResource FieldBrush}" BorderThickness="0" />
+                                <TextBox x:Name="AgPreviewText" IsReadOnly="True" TextWrapping="Wrap" AcceptsReturn="True" MinHeight="70" Background="{StaticResource FieldBrush}" BorderThickness="0" />
                             </StackPanel>
                         </Border>
                     </StackPanel>
@@ -280,18 +290,17 @@ $xaml = @'
 
                 <ScrollViewer x:Name="PanelDepartment" VerticalScrollBarVisibility="Auto" Visibility="Collapsed">
                     <StackPanel Margin="24">
-                        <TextBlock Style="{StaticResource SectionTitle}" Text="Ajouter un département" />
-                        <TextBlock Text="Ajoute une OU par département sous une agence. Les utilisateurs vivent dans les OU de département. Rien n'est créé avant Tout appliquer." Foreground="{StaticResource MutedBrush}" Margin="0,0,0,12" TextWrapping="Wrap" />
+                        <TextBlock Style="{StaticResource SectionTitle}" Text="Créer un département" />
+                        <TextBlock Text="Ajoute un département par nom sous l'agence choisie. Les utilisateurs vivent dans les OU de département. Rien n'est créé avant Appliquer." Foreground="{StaticResource MutedBrush}" Margin="0,0,0,12" TextWrapping="Wrap" />
                         <Border Style="{StaticResource Card}">
                             <StackPanel>
                                 <TextBlock Style="{StaticResource FieldLabel}" Text="Établissement" />
                                 <ComboBox x:Name="DepLvl1" DisplayMemberPath="Name" />
-                                <TextBlock Style="{StaticResource FieldLabel}" Text="Agence" />
+                                <TextBlock Style="{StaticResource FieldLabel}" Text="Agence (où créer le département)" />
                                 <ComboBox x:Name="DepLvl2" DisplayMemberPath="Name" />
-                                <TextBlock Style="{StaticResource FieldLabel}" Text="Département" />
-                                <ComboBox x:Name="DepLvl3" DisplayMemberPath="Name" />
+                                <TextBlock x:Name="DepHintText" Style="{StaticResource Hint}" Text="Aucune agence disponible pour cet établissement. Créez-en d'abord une dans « Créer une agence »." Visibility="Collapsed" />
                                 <TextBlock Style="{StaticResource FieldLabel}" Text="Noms des départements (un par ligne)" />
-                                <TextBox x:Name="DepNamesBox" AcceptsReturn="True" TextWrapping="Wrap" Height="88" VerticalScrollBarVisibility="Auto" />
+                                <TextBox x:Name="DepNamesBox" AcceptsReturn="True" TextWrapping="Wrap" Height="96" VerticalScrollBarVisibility="Auto" />
                                 <StackPanel Orientation="Horizontal" Margin="0,18,0,0">
                                     <Button x:Name="DepAddButton" Style="{StaticResource PrimaryButton}" Content="Ajouter à la file" />
                                 </StackPanel>
@@ -300,7 +309,7 @@ $xaml = @'
                         <Border Style="{StaticResource Card}">
                             <StackPanel>
                                 <TextBlock Text="Ajouté par cette action" FontWeight="SemiBold" Margin="0,0,0,8" />
-                                <TextBox x:Name="DepPreviewText" IsReadOnly="True" TextWrapping="Wrap" AcceptsReturn="True" MinHeight="90" Background="{StaticResource FieldBrush}" BorderThickness="0" />
+                                <TextBox x:Name="DepPreviewText" IsReadOnly="True" TextWrapping="Wrap" AcceptsReturn="True" MinHeight="70" Background="{StaticResource FieldBrush}" BorderThickness="0" />
                             </StackPanel>
                         </Border>
                     </StackPanel>
@@ -309,15 +318,16 @@ $xaml = @'
                 <ScrollViewer x:Name="PanelUser" VerticalScrollBarVisibility="Auto" Visibility="Collapsed">
                     <StackPanel Margin="24">
                         <TextBlock Style="{StaticResource SectionTitle}" Text="Créer un utilisateur" />
-                        <TextBlock Text="Ajoute un utilisateur dans un département. Le mot de passe est écrit dans le fichier de transmission en cas de succès. Rien n'est créé avant Tout appliquer." Foreground="{StaticResource MutedBrush}" Margin="0,0,0,12" TextWrapping="Wrap" />
+                        <TextBlock Text="Ajoute un utilisateur dans le département choisi. Le mot de passe est écrit dans le fichier de transmission en cas de succès. Rien n'est créé avant Appliquer." Foreground="{StaticResource MutedBrush}" Margin="0,0,0,12" TextWrapping="Wrap" />
                         <Border Style="{StaticResource Card}">
                             <StackPanel>
                                 <TextBlock Style="{StaticResource FieldLabel}" Text="Établissement" />
                                 <ComboBox x:Name="UserLvl1" DisplayMemberPath="Name" />
                                 <TextBlock Style="{StaticResource FieldLabel}" Text="Agence" />
                                 <ComboBox x:Name="UserLvl2" DisplayMemberPath="Name" />
-                                <TextBlock Style="{StaticResource FieldLabel}" Text="Département" />
+                                <TextBlock Style="{StaticResource FieldLabel}" Text="Département (où vivra l'utilisateur)" />
                                 <ComboBox x:Name="UserLvl3" DisplayMemberPath="Name" />
+                                <TextBlock x:Name="UserHintText" Style="{StaticResource Hint}" Text="Aucun département disponible. Créez-en d'abord un dans « Créer un département »." Visibility="Collapsed" />
                                 <Grid Margin="0,10,0,0">
                                     <Grid.ColumnDefinitions>
                                         <ColumnDefinition Width="*" />
@@ -366,7 +376,7 @@ $xaml = @'
                 <ScrollViewer x:Name="PanelArchive" VerticalScrollBarVisibility="Auto" Visibility="Collapsed">
                     <StackPanel Margin="24">
                         <TextBlock Style="{StaticResource SectionTitle}" Text="Archiver un utilisateur" />
-                        <TextBlock Text="Ajoute une désactivation de compte. L'utilisateur n'est ni supprimé ni déplacé. Rien n'est fait avant Tout appliquer." Foreground="{StaticResource MutedBrush}" Margin="0,0,0,12" TextWrapping="Wrap" />
+                        <TextBlock Text="Ajoute une désactivation de compte. L'utilisateur n'est ni supprimé ni déplacé. Rien n'est fait avant Appliquer." Foreground="{StaticResource MutedBrush}" Margin="0,0,0,12" TextWrapping="Wrap" />
                         <Border Style="{StaticResource Card}">
                             <StackPanel>
                                 <TextBlock Style="{StaticResource FieldLabel}" Text="Utilisateur (SamAccountName)" />
@@ -389,7 +399,7 @@ $xaml = @'
                         <Border Style="{StaticResource Card}">
                             <StackPanel>
                                 <TextBlock Text="Ajouté par cette action" FontWeight="SemiBold" Margin="0,0,0,8" />
-                                <TextBox x:Name="ArchivePreviewText" IsReadOnly="True" TextWrapping="Wrap" AcceptsReturn="True" MinHeight="90" Background="{StaticResource FieldBrush}" BorderThickness="0" />
+                                <TextBox x:Name="ArchivePreviewText" IsReadOnly="True" TextWrapping="Wrap" AcceptsReturn="True" MinHeight="70" Background="{StaticResource FieldBrush}" BorderThickness="0" />
                             </StackPanel>
                         </Border>
                     </StackPanel>
@@ -413,7 +423,7 @@ $xaml = @'
 
                     <StackPanel Grid.Row="2" Margin="0,12,0,0">
                         <StackPanel Orientation="Horizontal">
-                            <Button x:Name="QueueApplyButton" Style="{StaticResource PrimaryButton}" Content="Tout appliquer" IsEnabled="False" />
+                            <Button x:Name="QueueApplyButton" Style="{StaticResource PrimaryButton}" Content="Appliquer" IsEnabled="False" />
                             <Button x:Name="QueueRemoveButton" Style="{StaticResource SecondaryButton}" Content="Supprimer" IsEnabled="False" />
                         </StackPanel>
                         <Button x:Name="QueueClearButton" Style="{StaticResource SecondaryButton}" Content="Vider la file" HorizontalAlignment="Left" Margin="0,8,0,0" />
@@ -439,11 +449,11 @@ $ui = @{}
 foreach ($name in @(
         'DomainLabel', 'StatusText', 'NavList',
         'PanelOu', 'PanelAgence', 'PanelDepartment', 'PanelUser', 'PanelArchive',
-        'OuLvl1', 'OuLvl2', 'OuLvl3', 'OuNameBox', 'OuAgencesBox', 'OuDepartmentsBox',
-        'OuAddButton', 'OuPreviewText',
-        'AgLvl1', 'AgLvl2', 'AgLvl3', 'AgNamesBox', 'AgDepartmentsBox', 'AgAddButton', 'AgPreviewText',
-        'DepLvl1', 'DepLvl2', 'DepLvl3', 'DepNamesBox', 'DepAddButton', 'DepPreviewText',
-        'UserLvl1', 'UserLvl2', 'UserLvl3', 'UserGivenBox', 'UserSurnameBox', 'UserSamBox',
+        'OuParentText', 'OuNameBox', 'OuAddButton', 'OuPreviewText',
+        'AgLvl1', 'AgHintText', 'AgNamesBox', 'AgAddButton', 'AgPreviewText',
+        'DepLvl1', 'DepLvl2', 'DepHintText', 'DepNamesBox', 'DepAddButton', 'DepPreviewText',
+        'UserLvl1', 'UserLvl2', 'UserLvl3', 'UserHintText',
+        'UserGivenBox', 'UserSurnameBox', 'UserSamBox',
         'UserGeneratePasswordButton', 'UserPasswordBox', 'UserAddButton', 'UserPreviewText',
         'ArchiveUserBox', 'ArchiveLoadButton', 'ArchiveInfoText', 'ArchiveAddButton', 'ArchivePreviewText',
         'QueueList', 'QueueCountText', 'QueueApplyButton', 'QueueRemoveButton', 'QueueClearButton'
@@ -459,7 +469,7 @@ $script:queue = New-Object System.Collections.Generic.List[object]
 $script:existingOus = @()
 $script:ouNodes = @()
 $script:rootDn = ''
-$script:syncingCascade = $false
+$script:syncingPickers = $false
 $script:generatedPassword = $null
 $script:archiveUser = $null
 $script:recordDirectory = $RecordDirectory
@@ -467,8 +477,10 @@ $script:recordDirectory = $RecordDirectory
 # --- Aides à la manipulation des DN ------------------------------------------
 function Get-AdtDnParts {
     # Découpe un DN en ses RDN, en respectant les virgules échappées.
+    # La virgule précédée d'une barre oblique inverse est littérale et ne
+    # sépare pas deux RDN.
     [CmdletBinding()]
-    [OutputType([string[]])]
+    [OutputType([object[]])]
     param(
         [Parameter()]
         [AllowEmptyString()]
@@ -495,7 +507,11 @@ function Get-AdtDnParts {
     if ($current.Length -gt 0) {
         $parts.Add($current.ToString())
     }
-    return [string[]]$parts.ToArray()
+    # La virgule unaire (« , ») empêche PowerShell d'aplatir un tableau vide au
+    # moment du return : sans elle, la fonction renverrait $null et le appelant
+    # qui itère dessus échouerait sous StrictMode. PowerShell voit « , » en
+    # object[] (d'où l'OutputType), le tableau réel livré est un string[].
+    return , ([string[]]$parts.ToArray())
 }
 
 function Get-AdtDnValue {
@@ -508,11 +524,16 @@ function Get-AdtDnValue {
         [string]$DistinguishedName
     )
 
-    $parts = @(Get-AdtDnParts -DistinguishedName $DistinguishedName)
+    # Get-AdtDnParts renvoie un tableau par la virgule unaire : l'affecter
+    # directement (sans @(), qui l'empaîterait) donne le tableau réel.
+    $parts = Get-AdtDnParts -DistinguishedName $DistinguishedName
     if ($parts.Count -eq 0) {
         return $DistinguishedName
     }
     $first = $parts[0]
+    if ($null -eq $first) {
+        return $DistinguishedName
+    }
     $separator = $first.IndexOf('=')
     if ($separator -lt 0) {
         return $first
@@ -530,8 +551,20 @@ function Get-AdtDnParent {
         [string]$DistinguishedName
     )
 
-    $parts = @(Get-AdtDnParts -DistinguishedName $DistinguishedName)
+    $parts = Get-AdtDnParts -DistinguishedName $DistinguishedName
     if ($parts.Count -le 1) {
+        return ''
+    }
+    # Un DN fait uniquement de composants DC= est la racine du domaine : il n'a
+    # pas de parent.
+    $hasContainer = $false
+    foreach ($part in $parts) {
+        if ($part -notmatch '^DC=') {
+            $hasContainer = $true
+            break
+        }
+    }
+    if (-not $hasContainer) {
         return ''
     }
     return [string]($parts[1..($parts.Count - 1)] -join ',')
@@ -548,7 +581,11 @@ function Get-AdtDnDisplayPath {
     )
 
     $names = New-Object System.Collections.Generic.List[string]
-    foreach ($part in @(Get-AdtDnParts -DistinguishedName $DistinguishedName)) {
+    $parts = Get-AdtDnParts -DistinguishedName $DistinguishedName
+    foreach ($part in $parts) {
+        if ($null -eq $part) {
+            continue
+        }
         $separator = $part.IndexOf('=')
         if ($separator -lt 0) {
             continue
@@ -632,9 +669,10 @@ function Confirm-AdtAction {
 }
 
 function Get-AdtMultilineItems {
-    # Découpe une zone de texte multi-lignes en une liste sans doublon.
+    # Découpe une zone de texte multi-lignes en une liste sans doublon ni
+    # entrée vide.
     [CmdletBinding()]
-    [OutputType([string[]])]
+    [OutputType([object[]])]
     param(
         [Parameter()]
         [AllowEmptyString()]
@@ -642,19 +680,24 @@ function Get-AdtMultilineItems {
     )
 
     $items = New-Object System.Collections.Generic.List[string]
-    foreach ($line in @($Text -split "`r?`n")) {
+    $lines = @($Text -split "\r?\n")
+    foreach ($line in $lines) {
+        if ($null -eq $line) {
+            continue
+        }
         $name = $line.Trim()
         if ($name -and ($items -notcontains $name)) {
             $items.Add($name)
         }
     }
-    return [string[]]$items.ToArray()
+    # Virgule unaire : renvoyer un vrai tableau, même vide.
+    return , ([string[]]$items.ToArray())
 }
 
 function Get-AdtPendingOuPaths {
     # DN des OU mises en file mais pas encore créées.
     [CmdletBinding()]
-    [OutputType([string[]])]
+    [OutputType([object[]])]
     param()
 
     $paths = New-Object System.Collections.Generic.List[string]
@@ -663,18 +706,33 @@ function Get-AdtPendingOuPaths {
             $paths.Add([string]$item.DistinguishedName)
         }
     }
-    return [string[]]$paths.ToArray()
+    # Virgule unaire (« , ») : une file vide doit renvoyer un vrai string[] et non
+    # $null, sinon $x.Count et $x[0] sur l'appelant se comportent de façon
+    # inattendue. Piège associé à ne jamais re-faire : @() appelé sur un
+    # résultat de fonction renvoie un tableau empaîtenant le tableau (count 1) ;
+    # les sites d'appel affectent donc directement, sans @().
+    return , ([string[]]$paths.ToArray())
 }
 
 # --- Arborescence des OU -----------------------------------------------------
 function Sync-AdtOuTree {
-    # Reconstruit la liste des nœuds (réels + en attente) et resynchronise les
-    # quatre cascades.
+    # Reconstruit la liste des nœuds (réels + en attente) puis resynchronise
+    # les sélecteurs.
     [CmdletBinding()]
     param()
 
     try {
-        $script:existingOus = @(Get-AdtOU)
+        # On accumule dans une List[object] puis on convertit en tableau :
+        # @(<List[object]>) lèverait "Argument types do not match", et @($null)
+        # formerait un tableau d'un élément qui casserait la boucle suivante.
+        $found = Get-AdtOU
+        $buffer = New-Object System.Collections.Generic.List[object]
+        foreach ($ou in $found) {
+            if ($null -ne $ou) {
+                [void]$buffer.Add($ou)
+            }
+        }
+        $script:existingOus = $buffer.ToArray()
     } catch {
         $script:existingOus = @()
         Write-AdtStatus -Text $_.Exception.Message -Kind 'Error'
@@ -687,141 +745,175 @@ function Sync-AdtOuTree {
         Write-AdtStatus -Text $_.Exception.Message -Kind 'Error'
     }
 
-    $nodes = New-Object System.Collections.Generic.List[object]
-    if ($script:rootDn) {
-        $nodes.Add([pscustomobject]@{
-                DistinguishedName = $script:rootDn
-                Name = '(racine du domaine)'
-                ParentDn = ''
-                Pending = $false
-                IsRoot = $true
-            })
-    }
+    $map = @{}
     foreach ($ou in $script:existingOus) {
         $dn = [string]$ou.DistinguishedName
-        $nodes.Add([pscustomobject]@{
-                DistinguishedName = $dn
-                Name = Get-AdtDnValue -DistinguishedName $dn
-                ParentDn = Get-AdtDnParent -DistinguishedName $dn
-                Pending = $false
-                IsRoot = $false
-            })
-    }
-    foreach ($dn in Get-AdtPendingOuPaths) {
-        if (-not ($nodes | Where-Object { $_.DistinguishedName -eq $dn })) {
-            $nodes.Add([pscustomobject]@{
-                    DistinguishedName = $dn
-                    Name = '{0} (en attente)' -f (Get-AdtDnValue -DistinguishedName $dn)
-                    ParentDn = Get-AdtDnParent -DistinguishedName $dn
-                    Pending = $true
-                    IsRoot = $false
-                })
+        $map[$dn] = [pscustomobject]@{
+            DistinguishedName = $dn
+            Name = [string]$ou.Name
+            ParentDn = Get-AdtDnParent -DistinguishedName $dn
+            Pending = $false
         }
     }
-    $script:ouNodes = @($nodes)
+    $pending = Get-AdtPendingOuPaths
+    foreach ($dn in $pending) {
+        if (-not $dn) {
+            continue
+        }
+        if ($map.ContainsKey($dn)) {
+            continue
+        }
+        $map[$dn] = [pscustomobject]@{
+            DistinguishedName = $dn
+            Name = '{0} (en attente)' -f (Get-AdtDnValue -DistinguishedName $dn)
+            ParentDn = Get-AdtDnParent -DistinguishedName $dn
+            Pending = $true
+        }
+    }
+    # List[object] puis .ToArray() : donne toujours un vrai tableau, vide ou non.
+    $nodes = New-Object System.Collections.Generic.List[object]
+    foreach ($key in $map.Keys) {
+        [void]$nodes.Add($map[$key])
+    }
+    $script:ouNodes = $nodes.ToArray()
 
-    Sync-AdtCascade -First 'OuLvl1' -Second 'OuLvl2' -Third 'OuLvl3'
-    Sync-AdtCascade -First 'AgLvl1' -Second 'AgLvl2' -Third 'AgLvl3'
-    Sync-AdtCascade -First 'DepLvl1' -Second 'DepLvl2' -Third 'DepLvl3'
-    Sync-AdtCascade -First 'UserLvl1' -Second 'UserLvl2' -Third 'UserLvl3'
+    Sync-AdtPickers
 }
 
-function Sync-AdtCascade {
-    # Remplit une cascade à trois niveaux. Le niveau 1 propose la racine du
-    # domaine puis les établissements ; chaque niveau suivant propose les
-    # enfants de la sélection du niveau précédent.
+function Sync-AdtPickerLevel {
+    # Remplit un niveau d'un sélecteur. -TopLevel propose les établissements,
+    # c'est-à-dire les OU dont le parent est la racine du domaine. Sinon sont
+    # proposés les enfants directs du DN passé.
+    #
+    # -HintControlName, donné au niveau terminal d'une section, affiche le texte
+    # d'aide « créez d'abord un… » quand la liste ressort vide.
+    #
+    # Le nom est Sync- et non Set- : la règle PSUseShouldProcessForStateChanging-
+    # Functions exige SupportsShouldProcess pour tout verbe d'écriture, ce qui
+    # n'a pas de sens pour de simples affichages.
     [CmdletBinding()]
     param(
         [Parameter(Mandatory = $true)]
-        [string]$First,
+        [string]$ControlName,
 
-        [Parameter(Mandatory = $true)]
-        [string]$Second,
+        [Parameter()]
+        [AllowEmptyString()]
+        [string]$ParentDn,
 
-        [Parameter(Mandatory = $true)]
-        [string]$Third
+        [Parameter()]
+        [switch]$TopLevel,
+
+        [Parameter()]
+        [AllowEmptyString()]
+        [string]$HintControlName
     )
 
-    $script:syncingCascade = $true
-    try {
-        $c1 = $ui[$First]
-        $c2 = $ui[$Second]
-        $c3 = $ui[$Third]
+    $control = $ui[$ControlName]
+    $previous = $null
+    if ($control.SelectedItem) {
+        $previous = [string]$control.SelectedItem.DistinguishedName
+    }
 
-        $previous1 = $null
-        if ($c1.SelectedItem) {
-            $previous1 = [string]$c1.SelectedItem.DistinguishedName
-        }
-        $previous2 = $null
-        if ($c2.SelectedItem) {
-            $previous2 = [string]$c2.SelectedItem.DistinguishedName
-        }
-        $previous3 = $null
-        if ($c3.SelectedItem) {
-            $previous3 = [string]$c3.SelectedItem.DistinguishedName
-        }
+    if ($TopLevel) {
+        $wanted = $script:rootDn
+    } else {
+        $wanted = $ParentDn
+    }
 
-        $level1 = @($script:ouNodes | Where-Object { $_.IsRoot -or $_.ParentDn -eq $script:rootDn })
-        $c1.ItemsSource = $level1
-        $match1 = $level1 | Where-Object { $_.DistinguishedName -eq $previous1 } | Select-Object -First 1
-        if ($match1) {
-            $c1.SelectedItem = $match1
-        } elseif ($level1.Count -gt 0) {
-            $c1.SelectedIndex = 0
+    # List[object] puis .ToArray() : un sélecteur reçoit toujours un tableau
+    # object[], vide compris — jamais $null, dont .Count poserait problème.
+    $matched = New-Object System.Collections.Generic.List[object]
+    if ($wanted) {
+        foreach ($node in $script:ouNodes) {
+            if ($node.ParentDn -eq $wanted) {
+                [void]$matched.Add($node)
+            }
         }
+    }
+    $items = $matched.ToArray()
 
-        $children1 = @()
-        if ($c1.SelectedItem) {
-            $children1 = @($script:ouNodes | Where-Object {
-                    -not $_.IsRoot -and $_.ParentDn -eq $c1.SelectedItem.DistinguishedName })
-        }
-        $c2.ItemsSource = $children1
-        $match2 = $children1 | Where-Object { $_.DistinguishedName -eq $previous2 } | Select-Object -First 1
-        if ($match2) {
-            $c2.SelectedItem = $match2
-        } elseif ($children1.Count -gt 0) {
-            $c2.SelectedIndex = 0
-        }
+    $control.ItemsSource = $items
 
-        $children2 = @()
-        if ($c2.SelectedItem) {
-            $children2 = @($script:ouNodes | Where-Object {
-                    -not $_.IsRoot -and $_.ParentDn -eq $c2.SelectedItem.DistinguishedName })
+    # On affecte toujours SelectedItem, jamais SelectedIndex : l'index suppose
+    # que le ComboBox répercute immédiatement l'index sur l'élément, alors que
+    # l'élément est la seule source de vérité pour Get-AdtSelectedDn.
+    $match = $null
+    foreach ($candidate in $items) {
+        if ($candidate.DistinguishedName -eq $previous) {
+            $match = $candidate
+            break
         }
-        $c3.ItemsSource = $children2
-        $match3 = $children2 | Where-Object { $_.DistinguishedName -eq $previous3 } | Select-Object -First 1
-        if ($match3) {
-            $c3.SelectedItem = $match3
-        } elseif ($children2.Count -gt 0) {
-            $c3.SelectedIndex = 0
-        }
-    } finally {
-        $script:syncingCascade = $false
+    }
+    if ($null -eq $match -and $items.Count -gt 0) {
+        $match = $items[0]
+    }
+    $control.SelectedItem = $match
+
+    if ($HintControlName) {
+        Sync-AdtHint -ControlName $HintControlName -Show ($items.Count -eq 0)
     }
 }
 
-function Get-AdtCascadeSelection {
-    # Le parent effectif est la sélection la plus profonde non vide.
+function Sync-AdtHint {
+    # Affiche ou masque le texte d'aide « créez d'abord un… » d'un niveau.
+    # Isolée ici parce que seules la valeur Visibility de type WPF sont
+    # encapsulées : Sync-AdtPickerLevel reste ainsi indépendante des assemblages
+    # et reste testable sans fenêtre.
+    [CmdletBinding()]
+    param(
+        [Parameter(Mandatory = $true)]
+        [string]$ControlName,
+
+        [Parameter(Mandatory = $true)]
+        [bool]$Show
+    )
+
+    if ($Show) {
+        $ui[$ControlName].Visibility = [System.Windows.Visibility]::Visible
+    } else {
+        $ui[$ControlName].Visibility = [System.Windows.Visibility]::Collapsed
+    }
+}
+
+function Sync-AdtPickers {
+    # Remplit les sélecteurs des trois sections. Le drapeau empêche la boucle de
+    # réentrée : changer un niveau redéclenche SelectionChanged, ce qui
+    # rappellerait cette fonction indéfiniment sans le garde-fou.
+    [CmdletBinding()]
+    param()
+
+    $script:syncingPickers = $true
+    try {
+        # Créer une agence : un seul niveau.
+        Sync-AdtPickerLevel -ControlName 'AgLvl1' -TopLevel -HintControlName 'AgHintText'
+
+        # Créer un département : établissement puis agence.
+        Sync-AdtPickerLevel -ControlName 'DepLvl1' -TopLevel
+        Sync-AdtPickerLevel -ControlName 'DepLvl2' -ParentDn (Get-AdtSelectedDn -ControlName 'DepLvl1') -HintControlName 'DepHintText'
+
+        # Créer un utilisateur : les trois niveaux, dans l'ordre.
+        Sync-AdtPickerLevel -ControlName 'UserLvl1' -TopLevel
+        Sync-AdtPickerLevel -ControlName 'UserLvl2' -ParentDn (Get-AdtSelectedDn -ControlName 'UserLvl1')
+        Sync-AdtPickerLevel -ControlName 'UserLvl3' -ParentDn (Get-AdtSelectedDn -ControlName 'UserLvl2') -HintControlName 'UserHintText'
+    } finally {
+        $script:syncingPickers = $false
+    }
+}
+
+function Get-AdtSelectedDn {
+    # DN de la sélection courante, ou une chaîne vide si rien n'est choisi.
     [CmdletBinding()]
     [OutputType([string])]
     param(
         [Parameter(Mandatory = $true)]
-        [string]$First,
-
-        [Parameter(Mandatory = $true)]
-        [string]$Second,
-
-        [Parameter(Mandatory = $true)]
-        [string]$Third
+        [string]$ControlName
     )
 
-    foreach ($name in @($Third, $Second, $First)) {
-        $item = $ui[$name].SelectedItem
-        if ($item -and -not $item.IsRoot) {
-            return [string]$item.DistinguishedName
-        }
+    $item = $ui[$ControlName].SelectedItem
+    if ($null -eq $item) {
+        return ''
     }
-    return [string]$script:rootDn
+    return [string]$item.DistinguishedName
 }
 
 function Sync-AdtSamPreview {
@@ -864,13 +956,15 @@ function Sync-AdtQueue {
     param()
 
     $ui['QueueList'].ItemsSource = $null
-    $ui['QueueList'].ItemsSource = $script:queue
+    # .ToArray() et non la List elle-même : WPF et PowerShell se renvoient
+    # tous deux un tableau, ce qui évite toute conversion de collection.
+    $ui['QueueList'].ItemsSource = $script:queue.ToArray()
 
     $count = $script:queue.Count
     if ($count -eq 0) {
         $ui['QueueCountText'].Text = 'Rien en attente.'
     } else {
-        $ui['QueueCountText'].Text = "{0} action(s) en attente." -f $count
+        $ui['QueueCountText'].Text = '{0} action(s) en attente.' -f $count
     }
     $ui['QueueApplyButton'].IsEnabled = ($count -gt 0)
     $ui['QueueRemoveButton'].IsEnabled = ($count -gt 0)
@@ -885,6 +979,8 @@ function Add-AdtQueueItem {
 
     $script:queue.Add($Item)
     Sync-AdtQueue
+    # Reconstruire l'arborescence fait apparaître toute nouvelle OU dans les
+    # sélecteurs, marquée « (en attente) ».
     Sync-AdtOuTree
 }
 
@@ -906,13 +1002,13 @@ function Sync-AdtArchiveUser {
         }
 
         $lines = @(
-            "Identifiant    : $($script:archiveUser.SamAccountName)"
-            "Nom affiché    : $($script:archiveUser.DisplayName)"
-            "DN             : $($script:archiveUser.DistinguishedName)"
-            "État           : $state"
+            ('Identifiant    : {0}' -f $script:archiveUser.SamAccountName)
+            ('Nom affiché    : {0}' -f $script:archiveUser.DisplayName)
+            ('DN             : {0}' -f $script:archiveUser.DistinguishedName)
+            ('État           : {0}' -f $state)
         )
         $ui['ArchiveInfoText'].Text = ($lines -join [Environment]::NewLine)
-        Write-AdtStatus -Text "$($script:archiveUser.SamAccountName) chargé."
+        Write-AdtStatus -Text ('{0} chargé.' -f $script:archiveUser.SamAccountName)
     } catch {
         Write-AdtStatus -Text $_.Exception.Message -Kind 'Error'
         Show-AdtMessage -Text $_.Exception.Message -Kind 'Error'
@@ -920,61 +1016,45 @@ function Sync-AdtArchiveUser {
 }
 
 # --- Construction de la file -------------------------------------------------
-function Add-AdtOuPlan {
-    # Met en file une OU, puis éventuellement une OU par agence et une par
-    # département sous chaque agence.
+function Add-AdtOuTask {
+    # Met en file une seule OU. Un objet = une tâche.
     [CmdletBinding()]
-    [OutputType([string[]])]
+    [OutputType([string])]
     param(
         [Parameter(Mandatory = $true)]
         [string]$Name,
 
         [Parameter(Mandatory = $true)]
-        [string]$ParentPath,
-
-        [Parameter()]
-        [string[]]$Agences = @(),
-
-        [Parameter()]
-        [string[]]$Departments = @()
+        [string]$ParentPath
     )
 
-    $queued = New-Object System.Collections.Generic.List[string]
-    $topDn = "OU=$Name,$ParentPath"
+    $dn = 'OU={0},{1}' -f $Name, $ParentPath
     Add-AdtQueueItem -Item ([pscustomobject]@{
             Kind = 'OU'
             Name = $Name
             ParentPath = $ParentPath
-            DistinguishedName = $topDn
-            Label = "OU     $(Get-AdtDnDisplayPath -DistinguishedName $topDn)"
+            DistinguishedName = $dn
+            Label = 'OU     {0}' -f (Get-AdtDnDisplayPath -DistinguishedName $dn)
         })
-    $queued.Add($topDn)
+    return $dn
+}
 
-    foreach ($agence in $Agences) {
-        $agenceDn = "OU=$agence,$topDn"
-        Add-AdtQueueItem -Item ([pscustomobject]@{
-                Kind = 'OU'
-                Name = $agence
-                ParentPath = $topDn
-                DistinguishedName = $agenceDn
-                Label = "OU     $(Get-AdtDnDisplayPath -DistinguishedName $agenceDn)"
-            })
-        $queued.Add($agenceDn)
+function Format-AdtPathList {
+    # Aplatit une liste de DN en chemins lisibles, un par ligne.
+    [CmdletBinding()]
+    [OutputType([string])]
+    param(
+        [Parameter()]
+        [string[]]$Paths = @()
+    )
 
-        foreach ($department in $Departments) {
-            $departmentDn = "OU=$department,$agenceDn"
-            Add-AdtQueueItem -Item ([pscustomobject]@{
-                    Kind = 'OU'
-                    Name = $department
-                    ParentPath = $agenceDn
-                    DistinguishedName = $departmentDn
-                    Label = "OU     $(Get-AdtDnDisplayPath -DistinguishedName $departmentDn)"
-                })
-            $queued.Add($departmentDn)
+    $lines = New-Object System.Collections.Generic.List[string]
+    foreach ($path in $Paths) {
+        if ($path) {
+            $lines.Add((Get-AdtDnDisplayPath -DistinguishedName $path))
         }
     }
-
-    return [string[]]$queued.ToArray()
+    return [string]($lines -join [Environment]::NewLine)
 }
 
 # --- Exécution par lot -------------------------------------------------------
@@ -991,7 +1071,10 @@ function Invoke-AdtQueue {
     $done = 0
 
     foreach ($kind in @('OU', 'User', 'Archive')) {
-        foreach ($item in @($script:queue | Where-Object { $_.Kind -eq $kind })) {
+        foreach ($item in $script:queue) {
+            if ($item.Kind -ne $kind) {
+                continue
+            }
             try {
                 switch ($kind) {
                     'OU' {
@@ -1015,17 +1098,18 @@ function Invoke-AdtQueue {
                 }
                 $done++
             } catch {
-                $failures.Add(("{0} : {1}" -f $item.Label, $_.Exception.Message))
+                $failures.Add(('{0} : {1}' -f $item.Label, $_.Exception.Message))
             }
         }
     }
 
     $recordPath = $null
     if ($createdUsers.Count -gt 0) {
+        # .ToArray() et non @() : @(<List[object]>) lève "Argument types do not match".
         if ($script:recordDirectory) {
-            $saved = Save-AdtCredentialRecord -Record @($createdUsers) -Directory $script:recordDirectory
+            $saved = Save-AdtCredentialRecord -Record $createdUsers.ToArray() -Directory $script:recordDirectory
         } else {
-            $saved = Save-AdtCredentialRecord -Record @($createdUsers)
+            $saved = Save-AdtCredentialRecord -Record $createdUsers.ToArray()
         }
         $recordPath = [string]$saved.Path
     }
@@ -1033,7 +1117,7 @@ function Invoke-AdtQueue {
     return [pscustomobject]@{
         Succeeded = $done
         Failed = $failures.Count
-        Failures = @($failures)
+        Failures = $failures.ToArray()
         UsersCreated = $createdUsers.Count
         RecordPath = $recordPath
     }
@@ -1043,31 +1127,18 @@ function Invoke-AdtQueue {
 
 $ui['NavList'].Add_SelectionChanged({ Sync-AdtPanelVisibility })
 
-# Chaque cascade porte son identifiant dans le Tag du contrôle. Le gestionnaire
-# unique lit $this.Tag : ainsi il n'y a ni variable capturée ni GetNewClosure,
-# et $script:syncingCascade continue de désigner la portée du script. C'est ce
-# drapeau qui empêche la boucle de réentrée pendant qu'un niveau se remplit et
-# redéclenche SelectionChanged.
-$script:cascadeGroups = @(
-    @{ First = 'OuLvl1'; Second = 'OuLvl2'; Third = 'OuLvl3' },
-    @{ First = 'AgLvl1'; Second = 'AgLvl2'; Third = 'AgLvl3' },
-    @{ First = 'DepLvl1'; Second = 'DepLvl2'; Third = 'DepLvl3' },
-    @{ First = 'UserLvl1'; Second = 'UserLvl2'; Third = 'UserLvl3' }
-)
-foreach ($group in $script:cascadeGroups) {
-    foreach ($controlName in @($group.First, $group.Second, $group.Third)) {
-        $ui[$controlName].Tag = $group
-        $ui[$controlName].Add_SelectionChanged({
-                if ($script:syncingCascade) {
-                    return
-                }
-                $current = $this.Tag
-                Sync-AdtCascade -First $current.First -Second $current.Second -Third $current.Third
-            })
-    }
+# Tout changement de sélecteur resynchronise les trois sections. Le garde-fou
+# évite la réentrée pendant la resynchronisation elle-même.
+foreach ($pickerName in @('AgLvl1', 'DepLvl1', 'DepLvl2', 'UserLvl1', 'UserLvl2', 'UserLvl3')) {
+    $ui[$pickerName].Add_SelectionChanged({
+            if ($script:syncingPickers) {
+                return
+            }
+            Sync-AdtPickers
+        })
 }
 
-# Créer une OU
+# Créer un OU : le parent est toujours la racine du domaine.
 $ui['OuAddButton'].Add_Click({
         try {
             $name = $ui['OuNameBox'].Text.Trim()
@@ -1075,65 +1146,57 @@ $ui['OuAddButton'].Add_Click({
                 Show-AdtMessage -Text 'Saisissez un nom pour la nouvelle OU.' -Kind 'Warning'
                 return
             }
-            $parentDn = Get-AdtCascadeSelection -First 'OuLvl1' -Second 'OuLvl2' -Third 'OuLvl3'
-            if (-not $parentDn) {
-                Show-AdtMessage -Text 'Choisissez un conteneur parent.' -Kind 'Warning'
+            if (-not $script:rootDn) {
+                Show-AdtMessage -Text 'Impossible de déterminer la racine du domaine.' -Kind 'Error'
                 return
             }
 
-            $agences = @(Get-AdtMultilineItems -Text $ui['OuAgencesBox'].Text)
-            $departments = @(Get-AdtMultilineItems -Text $ui['OuDepartmentsBox'].Text)
-
-            $queued = Add-AdtOuPlan -Name $name -ParentPath $parentDn -Agences $agences -Departments $departments
-            $ui['OuPreviewText'].Text = ($queued | ForEach-Object { Get-AdtDnDisplayPath -DistinguishedName $_ }) -join [Environment]::NewLine
+            $dn = Add-AdtOuTask -Name $name -ParentPath $script:rootDn
+            $ui['OuPreviewText'].Text = Get-AdtDnDisplayPath -DistinguishedName $dn
             $ui['OuNameBox'].Text = ''
-            $ui['OuAgencesBox'].Text = ''
-            $ui['OuDepartmentsBox'].Text = ''
-            Write-AdtStatus -Text ("{0} OU ajoutée(s) à la file. Vérifiez la file puis cliquez sur Tout appliquer." -f $queued.Count) -Kind 'Success'
+            Write-AdtStatus -Text '1 OU ajoutée à la file. Vérifiez la file puis cliquez sur Appliquer.' -Kind 'Success'
         } catch {
             Write-AdtStatus -Text $_.Exception.Message -Kind 'Error'
             Show-AdtMessage -Text $_.Exception.Message -Kind 'Error'
         }
     })
 
-# Ajouter une agence
+# Créer une agence
 $ui['AgAddButton'].Add_Click({
         try {
-            $parentDn = Get-AdtCascadeSelection -First 'AgLvl1' -Second 'AgLvl2' -Third 'AgLvl3'
+            $parentDn = Get-AdtSelectedDn -ControlName 'AgLvl1'
             if (-not $parentDn) {
-                Show-AdtMessage -Text 'Choisissez un conteneur parent.' -Kind 'Warning'
+                Show-AdtMessage -Text 'Choisissez un établissement. S''il n''y en a pas encore, créez-en un dans « Créer un OU ».' -Kind 'Warning'
                 return
             }
-            $agences = @(Get-AdtMultilineItems -Text $ui['AgNamesBox'].Text)
+            $agences = Get-AdtMultilineItems -Text $ui['AgNamesBox'].Text
             if ($agences.Count -eq 0) {
                 Show-AdtMessage -Text 'Saisissez au moins un nom d''agence.' -Kind 'Warning'
                 return
             }
-            $departments = @(Get-AdtMultilineItems -Text $ui['AgDepartmentsBox'].Text)
 
             $queued = New-Object System.Collections.Generic.List[string]
             foreach ($agence in $agences) {
-                $queued.AddRange([string[]](Add-AdtOuPlan -Name $agence -ParentPath $parentDn -Departments $departments))
+                $queued.Add((Add-AdtOuTask -Name $agence -ParentPath $parentDn))
             }
-            $ui['AgPreviewText'].Text = ($queued | ForEach-Object { Get-AdtDnDisplayPath -DistinguishedName $_ }) -join [Environment]::NewLine
+            $ui['AgPreviewText'].Text = Format-AdtPathList -Paths ([string[]]$queued.ToArray())
             $ui['AgNamesBox'].Text = ''
-            $ui['AgDepartmentsBox'].Text = ''
-            Write-AdtStatus -Text ("{0} OU ajoutée(s) à la file. Vérifiez la file puis cliquez sur Tout appliquer." -f $queued.Count) -Kind 'Success'
+            Write-AdtStatus -Text ('{0} agence(s) ajoutée(s) à la file. Vérifiez la file puis cliquez sur Appliquer.' -f $queued.Count) -Kind 'Success'
         } catch {
             Write-AdtStatus -Text $_.Exception.Message -Kind 'Error'
             Show-AdtMessage -Text $_.Exception.Message -Kind 'Error'
         }
     })
 
-# Ajouter un département
+# Créer un département
 $ui['DepAddButton'].Add_Click({
         try {
-            $parentDn = Get-AdtCascadeSelection -First 'DepLvl1' -Second 'DepLvl2' -Third 'DepLvl3'
+            $parentDn = Get-AdtSelectedDn -ControlName 'DepLvl2'
             if (-not $parentDn) {
-                Show-AdtMessage -Text 'Choisissez un conteneur parent.' -Kind 'Warning'
+                Show-AdtMessage -Text 'Choisissez une agence. S''il n''y en a pas encore, créez-en une dans « Créer une agence ».' -Kind 'Warning'
                 return
             }
-            $departments = @(Get-AdtMultilineItems -Text $ui['DepNamesBox'].Text)
+            $departments = Get-AdtMultilineItems -Text $ui['DepNamesBox'].Text
             if ($departments.Count -eq 0) {
                 Show-AdtMessage -Text 'Saisissez au moins un nom de département.' -Kind 'Warning'
                 return
@@ -1141,19 +1204,11 @@ $ui['DepAddButton'].Add_Click({
 
             $queued = New-Object System.Collections.Generic.List[string]
             foreach ($department in $departments) {
-                $dn = "OU=$department,$parentDn"
-                Add-AdtQueueItem -Item ([pscustomobject]@{
-                        Kind = 'OU'
-                        Name = $department
-                        ParentPath = $parentDn
-                        DistinguishedName = $dn
-                        Label = "OU     $(Get-AdtDnDisplayPath -DistinguishedName $dn)"
-                    })
-                $queued.Add($dn)
+                $queued.Add((Add-AdtOuTask -Name $department -ParentPath $parentDn))
             }
-            $ui['DepPreviewText'].Text = ($queued | ForEach-Object { Get-AdtDnDisplayPath -DistinguishedName $_ }) -join [Environment]::NewLine
+            $ui['DepPreviewText'].Text = Format-AdtPathList -Paths ([string[]]$queued.ToArray())
             $ui['DepNamesBox'].Text = ''
-            Write-AdtStatus -Text ("{0} OU ajoutée(s) à la file. Vérifiez la file puis cliquez sur Tout appliquer." -f $queued.Count) -Kind 'Success'
+            Write-AdtStatus -Text ('{0} département(s) ajouté(s) à la file. Vérifiez la file puis cliquez sur Appliquer.' -f $queued.Count) -Kind 'Success'
         } catch {
             Write-AdtStatus -Text $_.Exception.Message -Kind 'Error'
             Show-AdtMessage -Text $_.Exception.Message -Kind 'Error'
@@ -1184,9 +1239,9 @@ $ui['UserAddButton'].Add_Click({
                 Show-AdtMessage -Text 'Saisissez un prénom et un nom.' -Kind 'Warning'
                 return
             }
-            $path = Get-AdtCascadeSelection -First 'UserLvl1' -Second 'UserLvl2' -Third 'UserLvl3'
+            $path = Get-AdtSelectedDn -ControlName 'UserLvl3'
             if (-not $path) {
-                Show-AdtMessage -Text 'Choisissez un département.' -Kind 'Warning'
+                Show-AdtMessage -Text 'Choisissez un département. S''il n''y en a pas encore, créez-en un dans « Créer un département ».' -Kind 'Warning'
                 return
             }
 
@@ -1206,16 +1261,16 @@ $ui['UserAddButton'].Add_Click({
                     SamAccountName = $sam
                     Path = $path
                     Password = $script:generatedPassword
-                    Label = "UTIL   $sam -> $displayPath   mdp=$script:generatedPassword"
+                    Label = 'UTIL   {0} -> {1}   mdp={2}' -f $sam, $displayPath, $script:generatedPassword
                 })
 
             $ui['UserPreviewText'].Text = (
-                "Utilisateur ajouté : " +
-                [Environment]::NewLine + "  Nom complet  : $given $surname" +
-                [Environment]::NewLine + "  Identifiant  : $sam" +
-                [Environment]::NewLine + "  Département  : $displayPath" +
-                [Environment]::NewLine + "  Mot de passe : $script:generatedPassword" +
-                [Environment]::NewLine + "  Changement de mot de passe à la première connexion : non"
+                'Utilisateur ajouté : ' +
+                [Environment]::NewLine + ('  Nom complet  : {0} {1}' -f $given, $surname) +
+                [Environment]::NewLine + ('  Identifiant  : {0}' -f $sam) +
+                [Environment]::NewLine + ('  Département  : {0}' -f $displayPath) +
+                [Environment]::NewLine + ('  Mot de passe : {0}' -f $script:generatedPassword) +
+                [Environment]::NewLine + '  Changement de mot de passe à la première connexion : non'
             )
 
             $script:generatedPassword = $null
@@ -1223,7 +1278,7 @@ $ui['UserAddButton'].Add_Click({
             $ui['UserGivenBox'].Text = ''
             $ui['UserSurnameBox'].Text = ''
             $ui['UserSamBox'].Text = ''
-            Write-AdtStatus -Text "$sam ajouté à la file. Vérifiez la file puis cliquez sur Tout appliquer." -Kind 'Success'
+            Write-AdtStatus -Text ('{0} ajouté à la file. Vérifiez la file puis cliquez sur Appliquer.' -f $sam) -Kind 'Success'
         } catch {
             Write-AdtStatus -Text $_.Exception.Message -Kind 'Error'
             Show-AdtMessage -Text $_.Exception.Message -Kind 'Error'
@@ -1243,13 +1298,13 @@ $ui['ArchiveAddButton'].Add_Click({
             Add-AdtQueueItem -Item ([pscustomobject]@{
                     Kind = 'Archive'
                     Identity = $sam
-                    Label = "ARCH  $sam"
+                    Label = 'ARCH  {0}' -f $sam
                 })
-            $ui['ArchivePreviewText'].Text = "Désactivation de '$sam' ajoutée à la file."
+            $ui['ArchivePreviewText'].Text = 'Désactivation de ''{0}'' ajoutée à la file.' -f $sam
             $ui['ArchiveUserBox'].Text = ''
             $ui['ArchiveInfoText'].Text = ''
             $script:archiveUser = $null
-            Write-AdtStatus -Text "Désactivation de $sam ajoutée à la file. Vérifiez la file puis cliquez sur Tout appliquer." -Kind 'Success'
+            Write-AdtStatus -Text ('Désactivation de {0} ajoutée à la file. Vérifiez la file puis cliquez sur Appliquer.' -f $sam) -Kind 'Success'
         } catch {
             Write-AdtStatus -Text $_.Exception.Message -Kind 'Error'
             Show-AdtMessage -Text $_.Exception.Message -Kind 'Error'
@@ -1259,16 +1314,23 @@ $ui['ArchiveAddButton'].Add_Click({
 # Contrôles de la file
 $ui['QueueRemoveButton'].Add_Click({
         try {
-            $selected = @($ui['QueueList'].SelectedItems)
-            if ($selected.Count -eq 0) {
+            # Copie dans une List[object] : @(<SelectedItems>) de WPF repasse par
+            # une conversion de collection qui peut lever "Argument types do not
+            # match". Copier d'abord, puis écrire, évite aussi toute modification
+            # de la collection source pendant l'énumération.
+            $targets = New-Object System.Collections.Generic.List[object]
+            foreach ($item in $ui['QueueList'].SelectedItems) {
+                [void]$targets.Add($item)
+            }
+            if ($targets.Count -eq 0) {
                 return
             }
-            foreach ($item in $selected) {
+            foreach ($item in $targets) {
                 [void]$script:queue.Remove($item)
             }
             Sync-AdtQueue
             Sync-AdtOuTree
-            Write-AdtStatus -Text ("{0} action(s) supprimée(s) de la file." -f $selected.Count)
+            Write-AdtStatus -Text ('{0} action(s) supprimée(s) de la file.' -f $targets.Count)
         } catch {
             Write-AdtStatus -Text $_.Exception.Message -Kind 'Error'
         }
@@ -1289,10 +1351,10 @@ $ui['QueueApplyButton'].Add_Click({
 
             $summary = @()
             foreach ($item in $script:queue) {
-                $summary += "  $($item.Label)"
+                $summary += ('  {0}' -f $item.Label)
             }
             $body = "Appliquer ces {0} action(s) à l'annuaire ?`n`n{1}" -f $script:queue.Count, ($summary -join [Environment]::NewLine)
-            if (-not (Confirm-AdtAction -Text $body -Title 'Tout appliquer')) {
+            if (-not (Confirm-AdtAction -Text $body -Title 'Appliquer')) {
                 return
             }
 
@@ -1302,12 +1364,12 @@ $ui['QueueApplyButton'].Add_Click({
             Sync-AdtOuTree
 
             $lines = @(
-                "Réussies  : $($result.Succeeded)"
-                "Échouées  : $($result.Failed)"
+                ('Réussies  : {0}' -f $result.Succeeded)
+                ('Échouées  : {0}' -f $result.Failed)
             )
             if ($result.UsersCreated -gt 0) {
                 $lines += ''
-                $lines += "Fichier de transmission : $($result.RecordPath)"
+                $lines += ('Fichier de transmission : {0}' -f $result.RecordPath)
                 $lines += 'Ce fichier est en clair. Remettez-le à l''utilisateur puis supprimez-le.'
                 $lines += 'Ne le commitez jamais et ne le laissez jamais dans le dépôt.'
             }
@@ -1315,7 +1377,7 @@ $ui['QueueApplyButton'].Add_Click({
                 $lines += ''
                 $lines += 'Échecs :'
                 foreach ($failure in $result.Failures) {
-                    $lines += "  $failure"
+                    $lines += ('  {0}' -f $failure)
                 }
             }
 
@@ -1324,13 +1386,13 @@ $ui['QueueApplyButton'].Add_Click({
                 $icon = [System.Windows.MessageBoxImage]::Warning
             }
             [void][System.Windows.MessageBox]::Show(
-                ($lines -join [Environment]::NewLine), 'Tout appliquer',
+                ($lines -join [Environment]::NewLine), 'Appliquer',
                 [System.Windows.MessageBoxButton]::OK, $icon)
 
             if ($result.Failed -gt 0) {
-                Write-AdtStatus -Text ("{0} action(s) appliquée(s), {1} en échec." -f $result.Succeeded, $result.Failed) -Kind 'Error'
+                Write-AdtStatus -Text ('{0} action(s) appliquée(s), {1} en échec.' -f $result.Succeeded, $result.Failed) -Kind 'Error'
             } else {
-                Write-AdtStatus -Text ("{0} action(s) appliquée(s)." -f $result.Succeeded) -Kind 'Success'
+                Write-AdtStatus -Text ('{0} action(s) appliquée(s).' -f $result.Succeeded) -Kind 'Success'
             }
         } catch {
             Write-AdtStatus -Text $_.Exception.Message -Kind 'Error'
@@ -1339,12 +1401,13 @@ $ui['QueueApplyButton'].Add_Click({
     })
 
 # --- Initialisation ----------------------------------------------------------
-$ui['NavList'].ItemsSource = @('Créer une OU', 'Ajouter une agence', 'Ajouter un département', 'Créer un utilisateur', 'Archiver un utilisateur')
+$ui['NavList'].ItemsSource = @('Créer un OU', 'Créer une agence', 'Créer un département', 'Créer un utilisateur', 'Archiver un utilisateur')
 $ui['NavList'].SelectedIndex = 0
 
 try {
-    $domain = Get-AdtDefaultSearchBase
-    $ui['DomainLabel'].Text = "Domaine : $domain"
+    $script:rootDn = [string](Get-AdtDefaultSearchBase)
+    $ui['DomainLabel'].Text = 'Domaine : {0}' -f $script:rootDn
+    $ui['OuParentText'].Text = $script:rootDn
 } catch {
     $ui['DomainLabel'].Text = 'Domaine : indisponible'
     Write-AdtStatus -Text $_.Exception.Message -Kind 'Error'
