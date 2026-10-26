@@ -194,7 +194,7 @@ layer. Delete it once the passwords have been handed over.
 ```
 projects/ad-tools/
 ├── README.md                      # this document (the frozen brief)
-├── SCRATCH.md                     # working log (discard after Windows validation)
+├── (SCRATCH.md moved to ../../../../docs/scratch/scripts/ad-tools/SCRATCH.md)  # working log moved (discard after Windows validation)
 ├── AdManager.ps1                  # WPF shell (Windows-only execution)
 ├── PSScriptAnalyzerSettings.psd1  # project-local 5.1 syntax enforcement
 ├── data/
