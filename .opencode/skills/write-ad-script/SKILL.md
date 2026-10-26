@@ -1,5 +1,4 @@
 ---
-id: write-ad-script
 name: write-ad-script
 description: Scaffold PowerShell 5.1 AD logic (lib/AdTools) for the AD tools project - use when creating AD-related functions, password generation, OU/user/group operations with -WhatIf support and no passwords in logs.
 ---

@@ -1,5 +1,4 @@
 ---
-id: test-ps-ad-mocks
 name: test-ps-ad-mocks
 description: Scaffold Pester tests for AD tools using mocked ActiveDirectory cmdlets - use when writing unit tests for lib/AdTools with no live AD dependencies.
 ---

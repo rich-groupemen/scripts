@@ -1,5 +1,4 @@
 ---
-id: write-wpf-gui-51
 name: write-wpf-gui-51
 description: Scaffold WPF GUI in PowerShell 5.1 for the AD tools project (hand-rolled Fluent XAML, STA, dependency-free) - use when creating the UI shell that previews actions, confirms, and writes the temporary credential record.
 ---
